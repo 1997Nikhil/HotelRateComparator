@@ -1,0 +1,79 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: hotel-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: hotel_user
+      POSTGRES_PASSWORD: hotel_password
+      POSTGRES_DB: hotel_db
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hotel_user -d hotel_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  temporal-postgres:
+    image: postgres:16
+    container_name: hotel-temporal-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_DB: temporal
+
+    ports:
+      - "5433:5432"
+
+    volumes:
+      - temporal_postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal -d temporal"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  temporal:
+    image: temporalio/auto-setup:latest
+    container_name: hotel-temporal
+
+    depends_on:
+      temporal-postgres:
+        condition: service_healthy
+
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: temporal-postgres
+
+    ports:
+      - "7233:7233"
+
+  temporal-ui:
+    image: temporalio/ui:latest
+    container_name: hotel-temporal-ui
+
+    depends_on:
+      - temporal
+
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+
+    ports:
+      - "8080:8080"
+
+volumes:
+  postgres_data:
+  temporal_postgres_data:
