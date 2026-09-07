@@ -1,442 +1,495 @@
+import { Context } from "@temporalio/activity";
 import { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
-import { ApplicationFailure } from "@temporalio/common";
 
 import { hotelSearchWorkflow } from "../workflows/hotel.workflow";
 
 jest.setTimeout(30000);
 
-describe("Hotel Search Workflow", () => {
-  let testEnv: TestWorkflowEnvironment;
+let testEnv: TestWorkflowEnvironment;
 
-  beforeAll(async () => {
-    testEnv = await TestWorkflowEnvironment.createTimeSkipping();
-  });
+const baseSearch = {
+  city: "Delhi",
+  checkIn: "2026-09-10",
+  checkOut: "2026-09-12",
+};
 
-  afterAll(async () => {
-    await testEnv?.teardown();
-  });
+function hotel(
+  hotelId: string,
+  name: string,
+  price: number,
+  supplier: "SupplierA" | "SupplierB"
+) {
+  return {
+    hotelId,
+    name,
+    price,
+    supplier,
+  };
+}
 
-  // ----------------------------------------------------
-  // TEST 1
-  // Supplier A is cheaper
-  // ----------------------------------------------------
-  test("Supplier A cheaper", async () => {
-    const worker = await Worker.create({
-      connection: testEnv.nativeConnection,
-      taskQueue: "test-task-queue-1",
+function waitForCancellation(): Promise<never> {
+  return new Promise((_, reject) => {
+    const signal = Context.current().cancellationSignal;
 
-      workflowsPath: require.resolve(
-        "../workflows/hotel.workflow"
-      ),
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
 
-      activities: {
-        fetchSupplierA: async () => [
-          {
-            hotelId: "A1",
-            name: "Hotel A",
-            price: 80,
-            supplier: "SupplierA",
-          },
-        ],
-
-        fetchSupplierB: async () => [
-          {
-            hotelId: "B1",
-            name: "Hotel B",
-            price: 100,
-            supplier: "SupplierB",
-          },
-        ],
-      },
-    });
-
-    const result = await worker.runUntil(
-      testEnv.client.workflow.execute(hotelSearchWorkflow, {
-        taskQueue: "test-task-queue-1",
-        workflowId: "test-supplier-a-cheaper",
-        args: [
-          {
-            city: "Mumbai",
-            checkIn: "2026-10-10",
-            checkOut: "2026-10-12",
-          },
-        ],
-      })
+    signal.addEventListener(
+      "abort",
+      () => reject(signal.reason),
+      { once: true }
     );
-
-    expect(result.hotel).not.toBeNull();
-    expect(result.hotel?.supplier).toBe("SupplierA");
-    expect(result.hotel?.price).toBe(80);
   });
+}
 
-  // ----------------------------------------------------
-  // TEST 2
-  // Supplier B is cheaper
-  // ----------------------------------------------------
-  test("Supplier B cheaper", async () => {
-    const worker = await Worker.create({
-      connection: testEnv.nativeConnection,
-      taskQueue: "test-task-queue-2",
-
-      workflowsPath: require.resolve(
-        "../workflows/hotel.workflow"
-      ),
-
-      activities: {
-        fetchSupplierA: async () => [
-          {
-            hotelId: "A1",
-            name: "Hotel A",
-            price: 120,
-            supplier: "SupplierA",
-          },
-        ],
-
-        fetchSupplierB: async () => [
-          {
-            hotelId: "B1",
-            name: "Hotel B",
-            price: 90,
-            supplier: "SupplierB",
-          },
-        ],
-      },
-    });
-
-    const result = await worker.runUntil(
-      testEnv.client.workflow.execute(hotelSearchWorkflow, {
-        taskQueue: "test-task-queue-2",
-        workflowId: "test-supplier-b-cheaper",
-        args: [
-          {
-            city: "Delhi",
-            checkIn: "2026-10-10",
-            checkOut: "2026-10-12",
-          },
-        ],
-      })
-    );
-
-    expect(result.hotel).not.toBeNull();
-    expect(result.hotel?.supplier).toBe("SupplierB");
-    expect(result.hotel?.price).toBe(90);
-  });
-
-  // ----------------------------------------------------
-  // TEST 3
-  // Same price → Supplier A should win
-  // ----------------------------------------------------
-  test("Same rate should deterministically select Supplier A", async () => {
-    const worker = await Worker.create({
-      connection: testEnv.nativeConnection,
-      taskQueue: "test-task-queue-3",
-
-      workflowsPath: require.resolve(
-        "../workflows/hotel.workflow"
-      ),
-
-      activities: {
-        fetchSupplierA: async () => [
-          {
-            hotelId: "A1",
-            name: "Hotel A",
-            price: 100,
-            supplier: "SupplierA",
-          },
-        ],
-
-        fetchSupplierB: async () => [
-          {
-            hotelId: "B1",
-            name: "Hotel B",
-            price: 100,
-            supplier: "SupplierB",
-          },
-        ],
-      },
-    });
-
-    const result = await worker.runUntil(
-      testEnv.client.workflow.execute(hotelSearchWorkflow, {
-        taskQueue: "test-task-queue-3",
-        workflowId: "test-same-rate",
-        args: [
-          {
-            city: "Pune",
-            checkIn: "2026-10-10",
-            checkOut: "2026-10-12",
-          },
-        ],
-      })
-    );
-
-    expect(result.hotel).not.toBeNull();
-    expect(result.hotel?.price).toBe(100);
-    expect(result.hotel?.supplier).toBe("SupplierA");
-  });
-
-  // ----------------------------------------------------
-  // TEST 4
-  // Supplier A fails, Supplier B succeeds
-  // ----------------------------------------------------
-  test("Supplier A fails but Supplier B succeeds", async () => {
-    const worker = await Worker.create({
-      connection: testEnv.nativeConnection,
-      taskQueue: "test-task-queue-4",
-
-      workflowsPath: require.resolve(
-        "../workflows/hotel.workflow"
-      ),
-
-      activities: {
-        fetchSupplierA: async () => {
-            throw ApplicationFailure.create({
-                message: "Supplier A permanently failed",
-                type: "PermanentSupplierError",
-                nonRetryable: true,
-            });
-        },
-
-        fetchSupplierB: async () => [
-          {
-            hotelId: "B1",
-            name: "Hotel B",
-            price: 95,
-            supplier: "SupplierB",
-          },
-        ],
-      },
-    });
-
-    const result = await worker.runUntil(
-      testEnv.client.workflow.execute(hotelSearchWorkflow, {
-        taskQueue: "test-task-queue-4",
-        workflowId: "test-a-fails-b-succeeds",
-        args: [
-          {
-            city: "Mumbai",
-            checkIn: "2026-10-10",
-            checkOut: "2026-10-12",
-          },
-        ],
-      })
-    );
-
-    expect(result.hotel).not.toBeNull();
-    expect(result.hotel?.supplier).toBe("SupplierB");
-    expect(result.hotel?.price).toBe(95);
-  });
-
-  // ----------------------------------------------------
-  // TEST 5
-  // Both suppliers fail
-  // ----------------------------------------------------
- test("Both suppliers fail", async () => {
+async function runWorkflow(
+  taskQueue: string,
+  workflowId: string,
+  activities: any
+) {
   const worker = await Worker.create({
     connection: testEnv.nativeConnection,
-
-    taskQueue: "test-task-queue-5",
-
     workflowsPath: require.resolve(
       "../workflows/hotel.workflow"
     ),
-
-    activities: {
-      fetchSupplierA: async () => {
-        throw ApplicationFailure.create({
-          message:
-            "Supplier A permanently failed",
-
-          type:
-            "PermanentSupplierError",
-
-          nonRetryable: true,
-        });
-      },
-
-      fetchSupplierB: async () => {
-        throw ApplicationFailure.create({
-          message:
-            "Supplier B permanently failed",
-
-          type:
-            "PermanentSupplierError",
-
-          nonRetryable: true,
-        });
-      },
-    },
+    taskQueue,
+    activities,
   });
 
-  const result = await worker.runUntil(
-    testEnv.client.workflow.execute(
-      hotelSearchWorkflow,
-      {
-        taskQueue: "test-task-queue-5",
+  const workerRun = worker.run();
 
-        workflowId:
-          "test-both-fail",
+  try {
+    const result =
+      await testEnv.client.workflow.execute(
+        hotelSearchWorkflow,
+        {
+          taskQueue,
+          workflowId,
+          args: [baseSearch],
+        }
+      );
 
-        args: [
-          {
-            city: "Delhi",
-            checkIn: "2026-10-10",
-            checkOut: "2026-10-12",
-          },
-        ],
-      }
-    )
-  );
+    return result;
+  } finally {
+    await worker.shutdown();
+    await workerRun;
+  }
+}
 
-  expect(result.hotel).toBeNull();
-
-  expect(result.message).toBe(
-    "Both hotel suppliers failed"
-  );
+beforeAll(async () => {
+  testEnv =
+    await TestWorkflowEnvironment.createTimeSkipping();
 });
 
-  // ----------------------------------------------------
-  // TEST 6
-  // Supplier A empty, Supplier B has hotels
-  // ----------------------------------------------------
-  test("Supplier A empty, Supplier B returns hotels", async () => {
-    const worker = await Worker.create({
-      connection: testEnv.nativeConnection,
-      taskQueue: "test-task-queue-6",
+afterAll(async () => {
+  await testEnv.teardown();
+});
 
-      workflowsPath: require.resolve(
-        "../workflows/hotel.workflow"
-      ),
-
-      activities: {
-        fetchSupplierA: async () => [],
+describe("Hotel Search Workflow", () => {
+  test("1. Supplier A is cheaper", async () => {
+    const result = await runWorkflow(
+      "QUEUE_TEST_1",
+      "workflow-test-1",
+      {
+        fetchSupplierA: async () => [
+          hotel(
+            "A-101",
+            "Grand Hotel",
+            100,
+            "SupplierA"
+          ),
+        ],
 
         fetchSupplierB: async () => [
-          {
-            hotelId: "B1",
-            name: "Royal Inn",
-            price: 90,
-            supplier: "SupplierB",
-          },
+          hotel(
+            "B-201",
+            "Royal Inn",
+            150,
+            "SupplierB"
+          ),
         ],
-      },
-    });
+      }
+    );
 
-    const result = await worker.runUntil(
-      testEnv.client.workflow.execute(hotelSearchWorkflow, {
-        taskQueue: "test-task-queue-6",
-        workflowId: "test-a-empty-b-success",
-        args: [
-          {
-            city: "Jaipur",
-            checkIn: "2026-10-10",
-            checkOut: "2026-10-12",
-          },
+    expect(result.hotel?.supplier).toBe(
+      "SupplierA"
+    );
+
+    expect(result.hotel?.price).toBe(100);
+  });
+
+  test("2. Supplier B is cheaper", async () => {
+    const result = await runWorkflow(
+      "QUEUE_TEST_2",
+      "workflow-test-2",
+      {
+        fetchSupplierA: async () => [
+          hotel(
+            "A-101",
+            "Grand Hotel",
+            150,
+            "SupplierA"
+          ),
         ],
-      })
+
+        fetchSupplierB: async () => [
+          hotel(
+            "B-201",
+            "Royal Inn",
+            90,
+            "SupplierB"
+          ),
+        ],
+      }
+    );
+
+    expect(result.hotel?.supplier).toBe(
+      "SupplierB"
+    );
+
+    expect(result.hotel?.price).toBe(90);
+  });
+
+  test("3. Same rate returns Supplier A", async () => {
+    const result = await runWorkflow(
+      "QUEUE_TEST_3",
+      "workflow-test-3",
+      {
+        fetchSupplierA: async () => [
+          hotel(
+            "A-101",
+            "Grand Hotel",
+            100,
+            "SupplierA"
+          ),
+        ],
+
+        fetchSupplierB: async () => [
+          hotel(
+            "B-201",
+            "Royal Inn",
+            100,
+            "SupplierB"
+          ),
+        ],
+      }
+    );
+
+    expect(result.hotel?.supplier).toBe(
+      "SupplierA"
+    );
+
+    expect(result.hotel?.price).toBe(100);
+  });
+
+  test("4. Supplier A fails, Supplier B succeeds", async () => {
+    const result = await runWorkflow(
+      "QUEUE_TEST_4",
+      "workflow-test-4",
+      {
+        fetchSupplierA: async () => {
+          const error = new Error(
+            "Supplier A failed"
+          );
+
+          error.name = "PermanentSupplierError";
+
+          throw error;
+        },
+
+        fetchSupplierB: async () => [
+          hotel(
+            "B-201",
+            "Royal Inn",
+            90,
+            "SupplierB"
+          ),
+        ],
+      }
     );
 
     expect(result.hotel).not.toBeNull();
-    expect(result.hotel?.name).toBe("Royal Inn");
-    expect(result.hotel?.supplier).toBe("SupplierB");
+
+    expect(result.hotel?.supplier).toBe(
+      "SupplierB"
+    );
+
+    expect(result.hotel?.price).toBe(90);
   });
 
-  // ----------------------------------------------------
-  // TEST 7
-  // Both suppliers empty
-  // ----------------------------------------------------
-  test("Both suppliers return empty results", async () => {
-    const worker = await Worker.create({
-      connection: testEnv.nativeConnection,
-      taskQueue: "test-task-queue-7",
+  test("5. Both suppliers fail", async () => {
+    const result = await runWorkflow(
+      "QUEUE_TEST_5",
+      "workflow-test-5",
+      {
+        fetchSupplierA: async () => {
+          const error = new Error(
+            "Supplier A failed"
+          );
 
-      workflowsPath: require.resolve(
-        "../workflows/hotel.workflow"
-      ),
+          error.name = "PermanentSupplierError";
 
-      activities: {
-        fetchSupplierA: async () => [],
+          throw error;
+        },
 
-        fetchSupplierB: async () => [],
-      },
-    });
+        fetchSupplierB: async () => {
+          const error = new Error(
+            "Supplier B failed"
+          );
 
-    const result = await worker.runUntil(
-      testEnv.client.workflow.execute(hotelSearchWorkflow, {
-        taskQueue: "test-task-queue-7",
-        workflowId: "test-both-empty",
-        args: [
-          {
-            city: "Goa",
-            checkIn: "2026-10-10",
-            checkOut: "2026-10-12",
-          },
-        ],
-      })
+          error.name = "PermanentSupplierError";
+
+          throw error;
+        },
+      }
     );
 
     expect(result.hotel).toBeNull();
-    expect(result.message).toBe("No hotels found");
+
+    expect(result.message).toBe(
+      "Both hotel suppliers failed"
+    );
   });
 
-  // ----------------------------------------------------
-  // TEST 8
-  // Supplier A fails twice, then succeeds
-  // Tests Temporal retry
-  // ----------------------------------------------------
-  test("Supplier A fails twice and succeeds on third attempt", async () => {
-    let attempts = 0;
+  test("6. One supplier returns empty", async () => {
+    const result = await runWorkflow(
+      "QUEUE_TEST_6",
+      "workflow-test-6",
+      {
+        fetchSupplierA: async () => [],
 
-    const worker = await Worker.create({
-      connection: testEnv.nativeConnection,
-      taskQueue: "test-task-queue-8",
-
-      workflowsPath: require.resolve(
-        "../workflows/hotel.workflow"
-      ),
-
-      activities: {
-        fetchSupplierA: async () => {
-          attempts++;
-
-          if (attempts < 3) {
-            throw new Error(
-              `Supplier A temporary failure - attempt ${attempts}`
-            );
-          }
-
-          return [
-            {
-              hotelId: "A1",
-              name: "Retry Hotel",
-              price: 85,
-              supplier: "SupplierA",
-            },
-          ];
-        },
-
-        fetchSupplierB: async () => [],
-      },
-    });
-
-    const result = await worker.runUntil(
-      testEnv.client.workflow.execute(hotelSearchWorkflow, {
-        taskQueue: "test-task-queue-8",
-        workflowId: "test-retry-success",
-        args: [
-          {
-            city: "Mumbai",
-            checkIn: "2026-10-10",
-            checkOut: "2026-10-12",
-          },
+        fetchSupplierB: async () => [
+          hotel(
+            "B-201",
+            "Royal Inn",
+            90,
+            "SupplierB"
+          ),
         ],
-      })
+      }
     );
 
-    expect(attempts).toBe(3);
     expect(result.hotel).not.toBeNull();
-    expect(result.hotel?.name).toBe("Retry Hotel");
-    expect(result.hotel?.price).toBe(85);
+
+    expect(result.hotel?.supplier).toBe(
+      "SupplierB"
+    );
+
+    expect(result.hotel?.price).toBe(90);
   });
+
+  test("7. Both suppliers return empty", async () => {
+    const result = await runWorkflow(
+      "QUEUE_TEST_7",
+      "workflow-test-7",
+      {
+        fetchSupplierA: async () => [],
+
+        fetchSupplierB: async () => [],
+      }
+    );
+
+    expect(result.hotel).toBeNull();
+
+    expect(result.message).toBe(
+      "No hotels found"
+    );
+  });
+
+  test(
+    "8. One supplier times out, other supplier succeeds",
+    async () => {
+      const taskQueue =
+        "QUEUE_TEST_8";
+
+      const worker = await Worker.create({
+        connection: testEnv.nativeConnection,
+        workflowsPath: require.resolve(
+          "../workflows/hotel.workflow"
+        ),
+        taskQueue,
+
+        activities: {
+          fetchSupplierA: async () => {
+            await waitForCancellation();
+            return [];
+          },
+
+          fetchSupplierB: async () => [
+            hotel(
+              "B-201",
+              "Royal Inn",
+              90,
+              "SupplierB"
+            ),
+          ],
+        },
+      });
+
+      const workerRun = worker.run();
+
+      try {
+        const result =
+          await testEnv.client.workflow.execute(
+            hotelSearchWorkflow,
+            {
+              taskQueue,
+              workflowId: "workflow-test-8",
+              args: [baseSearch],
+            }
+          );
+
+        expect(result.hotel).not.toBeNull();
+
+        expect(result.hotel?.supplier).toBe(
+          "SupplierB"
+        );
+
+        expect(result.hotel?.price).toBe(90);
+      } finally {
+        await worker.shutdown();
+        await workerRun;
+      }
+    },
+    15000
+  );
+
+  test(
+    "9. Supplier A fails twice and succeeds on third attempt",
+    async () => {
+      let attempts = 0;
+
+      const taskQueue =
+        "QUEUE_TEST_9";
+
+      const worker = await Worker.create({
+        connection: testEnv.nativeConnection,
+        workflowsPath: require.resolve(
+          "../workflows/hotel.workflow"
+        ),
+        taskQueue,
+
+        activities: {
+          fetchSupplierA: async () => {
+            attempts++;
+
+            console.log(
+              `Supplier A attempt ${attempts}`
+            );
+
+            if (attempts < 3) {
+              throw new Error(
+                "Temporary Supplier A failure"
+              );
+            }
+
+            return [
+              hotel(
+                "A-101",
+                "Grand Hotel",
+                80,
+                "SupplierA"
+              ),
+            ];
+          },
+
+          fetchSupplierB: async () => [
+            hotel(
+              "B-201",
+              "Royal Inn",
+              150,
+              "SupplierB"
+            ),
+          ],
+        },
+      });
+
+      const workerRun = worker.run();
+
+      try {
+        const result =
+          await testEnv.client.workflow.execute(
+            hotelSearchWorkflow,
+            {
+              taskQueue,
+              workflowId: "workflow-test-9",
+              args: [baseSearch],
+            }
+          );
+
+        expect(attempts).toBe(3);
+
+        expect(result.hotel).not.toBeNull();
+
+        expect(result.hotel?.supplier).toBe(
+          "SupplierA"
+        );
+
+        expect(result.hotel?.price).toBe(80);
+      } finally {
+        await worker.shutdown();
+        await workerRun;
+      }
+    },
+    15000
+  );
+
+  test(
+    "10. User cancels workflow while suppliers are running",
+    async () => {
+      const taskQueue =
+        "QUEUE_TEST_10";
+
+      const worker = await Worker.create({
+        connection: testEnv.nativeConnection,
+        workflowsPath: require.resolve(
+          "../workflows/hotel.workflow"
+        ),
+        taskQueue,
+
+        activities: {
+          fetchSupplierA: async () => {
+            await waitForCancellation();
+            return [];
+          },
+
+          fetchSupplierB: async () => {
+            await waitForCancellation();
+            return [];
+          },
+        },
+      });
+
+      const workerRun = worker.run();
+
+      try {
+        const handle =
+          await testEnv.client.workflow.start(
+            hotelSearchWorkflow,
+            {
+              taskQueue,
+              workflowId: "workflow-test-10",
+              args: [baseSearch],
+            }
+          );
+
+        await new Promise((resolve) =>
+          setTimeout(resolve, 500)
+        );
+
+        await handle.cancel();
+
+        await expect(
+          handle.result()
+        ).rejects.toThrow();
+      } finally {
+        await worker.shutdown();
+        await workerRun;
+      }
+    },
+    15000
+  );
 });

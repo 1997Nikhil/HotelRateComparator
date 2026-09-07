@@ -146,3 +146,52 @@ button:disabled {
 
   border-radius: 6px;
 }
+
+
+
+.cancel-button {
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  background: #dc2626;
+  color: white;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cancel-button:hover {
+  background: #b91c1c;
+}
+
+
+
+.cancel-button {
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px;
+
+  border: none;
+  border-radius: 8px;
+
+  background: #dc2626;
+  color: white;
+
+  font-size: 16px;
+  font-weight: 600;
+
+  cursor: pointer;
+
+  transition: background 0.2s ease;
+}
+
+.cancel-button:hover {
+  background: #b91c1c;
+}
+
+.cancel-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
