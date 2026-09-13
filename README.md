@@ -4,9 +4,12 @@ A production-style **Hotel Rate Comparator** built with **React, Node.js, TypeSc
 
 The application searches multiple hotel suppliers **in parallel**, handles supplier failures and timeouts, compares available hotel rates, and returns the **cheapest available hotel**.
 
+
+
 <p align="center">
   <img src="./screenshots/hotel-rate-comparator.png" alt="Hotel Rate Comparator" width="900"/>
 </p>
+
 
 The project demonstrates real-world distributed-system concepts including:
 
@@ -102,6 +105,8 @@ the application executes supplier searches concurrently:
 ```
 
 Because suppliers are executed concurrently, a slow or failed supplier does not necessarily prevent another supplier from returning a valid result.
+
+<p align="center"> <img src="./screenshots/HotelRateComparator-Flow-Chart.png" alt="Hotel Rate Comparator System Architecture" width="1100"/> </p>
 
 ---
 
@@ -352,6 +357,9 @@ Cancellation is particularly useful for long-running searches where the user no 
                           ▼
                    PostgreSQL
 ```
+
+
+<p align="center"> <img src="./screenshots/HotelRateComparator-Architecture.png" alt="Hotel Rate Comparator System Architecture" width="1100"/> </p>
 
 ---
 
