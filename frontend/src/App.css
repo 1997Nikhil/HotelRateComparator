@@ -6,42 +6,39 @@ body {
   margin: 0;
   font-family:
     Arial,
+    Helvetica,
     sans-serif;
 
-  background: #f4f6f8;
+  background: #f5f7fb;
 }
 
 .container {
   min-height: 100vh;
 
-  display: flex;
-
-  justify-content: center;
-
-  align-items: center;
-
-  padding: 20px;
+  padding: 40px 20px;
 }
 
 .card {
   width: 100%;
-  max-width: 500px;
+  max-width: 900px;
 
-  background: white;
+  margin: 0 auto;
 
   padding: 30px;
 
-  border-radius: 12px;
+  background: white;
+
+  border-radius: 15px;
 
   box-shadow:
     0 10px 30px
-    rgba(0, 0, 0, 0.1);
+      rgba(0, 0, 0, 0.08);
 }
 
 h1 {
-  text-align: center;
+  margin-top: 0;
 
-  margin-bottom: 10px;
+  text-align: center;
 }
 
 .subtitle {
@@ -52,38 +49,42 @@ h1 {
   margin-bottom: 30px;
 }
 
+/* =========================================
+   FORM
+========================================= */
+
 .form-group {
-  display: flex;
-
-  flex-direction: column;
-
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 
-label {
-  margin-bottom: 8px;
+.form-group label {
+  display: block;
+
+  margin-bottom: 7px;
 
   font-weight: 600;
 }
 
-input {
+.form-group input {
+  width: 100%;
+
   padding: 12px;
 
-  border: 1px solid #ddd;
+  border: 1px solid #ccc;
 
-  border-radius: 6px;
+  border-radius: 7px;
 
-  font-size: 16px;
+  font-size: 15px;
 }
 
 button {
   width: 100%;
 
-  padding: 14px;
+  padding: 13px;
 
   border: none;
 
-  border-radius: 6px;
+  border-radius: 7px;
 
   background: #2563eb;
 
@@ -91,11 +92,9 @@ button {
 
   font-size: 16px;
 
-  cursor: pointer;
-}
+  font-weight: 600;
 
-button:hover {
-  background: #1d4ed8;
+  cursor: pointer;
 }
 
 button:disabled {
@@ -104,140 +103,402 @@ button:disabled {
   cursor: not-allowed;
 }
 
-.hotel-result {
-  margin-top: 25px;
+.cancel-button {
+  margin-top: 10px;
 
-  padding: 20px;
-
-  background: #f0fdf4;
-
-  border-radius: 8px;
+  background: #dc2626;
 }
 
-.hotel-row {
-  display: flex;
+/* =========================================
+   MESSAGE
+========================================= */
 
-  justify-content: space-between;
+.message {
+  margin-top: 20px;
 
-  padding: 10px 0;
+  padding: 12px;
 
-  border-bottom:
-    1px solid #ddd;
+  border-radius: 7px;
+
+  background: #eff6ff;
+
+  color: #1d4ed8;
+
+  text-align: center;
 }
 
 .error {
   margin-top: 20px;
 
-  padding: 15px;
-
-  background: #fee2e2;
-
-  color: #b91c1c;
-
-  border-radius: 6px;
-}
-
-.message {
-  margin-top: 20px;
-
-  padding: 15px;
-
-  background: #fef3c7;
-
-  border-radius: 6px;
-}
-
-
-
-.cancel-button {
-  width: 100%;
-  margin-top: 12px;
-  padding: 12px;
-  border: none;
-  border-radius: 8px;
-  background: #dc2626;
-  color: white;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.cancel-button:hover {
-  background: #b91c1c;
-}
-
-
-
-.cancel-button {
-  width: 100%;
-  margin-top: 12px;
   padding: 12px;
 
-  border: none;
-  border-radius: 8px;
+  border-radius: 7px;
 
-  background: #dc2626;
-  color: white;
+  background: #fff1f2;
 
+  color: #dc2626;
+
+  text-align: center;
+}
+
+/* =========================================
+   TEMPORAL WORKFLOW
+========================================= */
+
+.workflow-section {
+  margin-top: 35px;
+
+  padding: 25px;
+
+  border: 1px solid #e5e7eb;
+
+  border-radius: 14px;
+
+  background: #fafafa;
+}
+
+.workflow-title {
+  display: flex;
+
+  justify-content: space-between;
+
+  align-items: center;
+
+  margin-bottom: 25px;
+}
+
+.workflow-title h2 {
+  margin: 0;
+}
+
+.live-badge {
+  padding: 5px 10px;
+
+  border-radius: 20px;
+
+  background: #dcfce7;
+
+  color: #15803d;
+
+  font-size: 11px;
+
+  font-weight: bold;
+}
+
+/* Main workflow nodes */
+
+.workflow-main-node {
+  width: 100%;
+
+  max-width: 600px;
+
+  margin: 0 auto;
+
+  padding: 16px;
+
+  display: flex;
+
+  align-items: center;
+
+  border: 2px solid #ddd;
+
+  border-radius: 12px;
+
+  background: white;
+
+  transition: 0.3s;
+}
+
+/* Supplier row */
+
+.supplier-workflow-row {
+  display: flex;
+
+  align-items: stretch;
+
+  justify-content: center;
+
+  gap: 15px;
+
+  width: 100%;
+}
+
+.workflow-supplier-node {
+  width: 42%;
+
+  padding: 16px;
+
+  display: flex;
+
+  align-items: center;
+
+  border: 2px solid #ddd;
+
+  border-radius: 12px;
+
+  background: white;
+
+  transition: 0.3s;
+}
+
+.parallel-symbol {
+  display: flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  font-size: 24px;
+
+  font-weight: bold;
+
+  color: #777;
+}
+
+.workflow-parallel-label {
+  margin-top: 10px;
+
+  text-align: center;
+
+  color: #777;
+
+  font-size: 12px;
+
+  font-style: italic;
+}
+
+/* Icon */
+
+.workflow-icon {
+  width: 45px;
+
+  min-width: 45px;
+
+  height: 45px;
+
+  display: flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  border-radius: 50%;
+
+  margin-right: 15px;
+
+  font-size: 20px;
+
+  font-weight: bold;
+}
+
+/* Content */
+
+.workflow-content {
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 4px;
+}
+
+.workflow-content strong {
   font-size: 16px;
-  font-weight: 600;
-
-  cursor: pointer;
-
-  transition: background 0.2s ease;
 }
 
-.cancel-button:hover {
-  background: #b91c1c;
+.workflow-content span {
+  color: #666;
+
+  font-size: 13px;
 }
 
-.cancel-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.workflow-content small {
+  font-size: 11px;
+
+  font-weight: bold;
 }
 
+/* Arrow */
+
+.workflow-arrow {
+  width: 100%;
+
+  text-align: center;
+
+  margin: 8px 0;
+
+  color: #777;
+
+  font-size: 25px;
+}
+
+/* Pending */
+
+.workflow-main-node.pending,
+.workflow-supplier-node.pending {
+  border-color: #ddd;
+
+  opacity: 0.55;
+}
+
+.workflow-main-node.pending
+  .workflow-icon,
+.workflow-supplier-node.pending
+  .workflow-icon {
+  background: #eee;
+
+  color: #777;
+}
+
+/* Running */
+
+.workflow-main-node.running,
+.workflow-supplier-node.running {
+  border-color: #2563eb;
+
+  background: #eff6ff;
+
+  animation: workflowPulse 1.5s infinite;
+}
+
+.workflow-main-node.running
+  .workflow-icon,
+.workflow-supplier-node.running
+  .workflow-icon {
+  background: #2563eb;
+
+  color: white;
+}
+
+/* Completed */
+
+.workflow-main-node.completed,
+.workflow-supplier-node.completed {
+  border-color: #16a34a;
+
+  background: #f0fdf4;
+}
+
+.workflow-main-node.completed
+  .workflow-icon,
+.workflow-supplier-node.completed
+  .workflow-icon {
+  background: #16a34a;
+
+  color: white;
+}
+
+/* Failed */
+
+.workflow-main-node.failed,
+.workflow-supplier-node.failed {
+  border-color: #dc2626;
+
+  background: #fef2f2;
+}
+
+.workflow-main-node.failed
+  .workflow-icon,
+.workflow-supplier-node.failed
+  .workflow-icon {
+  background: #dc2626;
+
+  color: white;
+}
+
+/* Timeout */
+
+.workflow-main-node.timeout,
+.workflow-supplier-node.timeout {
+  border-color: #f59e0b;
+
+  background: #fffbeb;
+}
+
+.workflow-main-node.timeout
+  .workflow-icon,
+.workflow-supplier-node.timeout
+  .workflow-icon {
+  background: #f59e0b;
+
+  color: white;
+}
+
+/* Best rate */
+
+.best-rate-workflow {
+  border-width: 3px;
+}
+
+/* Animation */
+
+@keyframes workflowPulse {
+  0% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.015);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* =========================================
+   SUPPLIER RESULTS
+========================================= */
 
 .supplier-results {
-  margin-top: 30px;
+  margin-top: 35px;
 }
 
 .supplier-results h2 {
-  margin-bottom: 15px;
+  margin-bottom: 18px;
 }
 
 .supplier-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+
+  grid-template-columns:
+    repeat(2, 1fr);
+
   gap: 15px;
 }
 
 .supplier-card {
-  border: 1px solid #ddd;
-  border-radius: 10px;
   padding: 18px;
-  background: #fff;
+
+  border: 1px solid #ddd;
+
+  border-radius: 10px;
+
+  background: white;
 }
 
 .supplier-card.success {
-  border-left: 5px solid green;
+  border-left: 5px solid #16a34a;
 }
 
 .supplier-card.failed {
-  border-left: 5px solid red;
+  border-left: 5px solid #dc2626;
 }
 
 .supplier-card.timeout {
-  border-left: 5px solid orange;
+  border-left: 5px solid #f59e0b;
 }
 
 .supplier-card.empty {
-  border-left: 5px solid gray;
+  border-left: 5px solid #777;
 }
 
 .supplier-header {
   display: flex;
+
   justify-content: space-between;
+
   align-items: center;
+
   margin-bottom: 15px;
 }
 
@@ -246,21 +507,28 @@ button:disabled {
 }
 
 .supplier-status {
-  font-size: 13px;
+  font-size: 12px;
+
   font-weight: bold;
 }
 
 .supplier-hotel {
   display: flex;
+
   justify-content: space-between;
+
   align-items: center;
+
   padding: 12px 0;
+
   border-top: 1px solid #eee;
 }
 
 .supplier-hotel div {
   display: flex;
+
   flex-direction: column;
+
   gap: 4px;
 }
 
@@ -270,23 +538,36 @@ button:disabled {
 
 .supplier-error {
   padding: 12px;
+
   margin-top: 10px;
-  background: #fff0f0;
-  color: #c62828;
+
+  background: #fff1f2;
+
+  color: #dc2626;
+
   border-radius: 5px;
 }
 
 .supplier-empty {
   padding: 12px;
+
   color: #777;
 }
 
+/* =========================================
+   BEST HOTEL
+========================================= */
+
 .hotel-result {
   margin-top: 30px;
+
   padding: 20px;
-  border: 2px solid green;
+
+  border: 2px solid #16a34a;
+
   border-radius: 10px;
-  background: #f6fff6;
+
+  background: #f0fdf4;
 }
 
 .hotel-result h2 {
@@ -295,8 +576,11 @@ button:disabled {
 
 .hotel-row {
   display: flex;
+
   justify-content: space-between;
+
   padding: 10px 0;
+
   border-bottom: 1px solid #ddd;
 }
 
@@ -304,6 +588,34 @@ button:disabled {
   border-bottom: none;
 }
 
-.cancel-button {
-  margin-top: 10px;
+/* =========================================
+   MOBILE
+========================================= */
+
+@media (max-width: 700px) {
+  .card {
+    padding: 20px;
+  }
+
+  .supplier-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .supplier-workflow-row {
+    flex-direction: column;
+
+    align-items: center;
+  }
+
+  .workflow-supplier-node {
+    width: 100%;
+  }
+
+  .parallel-symbol {
+    display: none;
+  }
+
+  .workflow-parallel-label {
+    margin-bottom: 5px;
+  }
 }

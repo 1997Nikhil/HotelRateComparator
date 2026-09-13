@@ -1,251 +1,442 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.workflowStatusQuery = void 0;
 exports.hotelSearchWorkflow = hotelSearchWorkflow;
 const workflow_1 = require("@temporalio/workflow");
-const hotel_comparison_1 = require("../services/hotel-comparison");
-/**
- * ----------------------------------------------------
- * Temporal Activity Configuration
- * ----------------------------------------------------
+/*
+ * --------------------------------------------------
+ * Configuration
+ * --------------------------------------------------
+ */
+const SUPPLIER_TIMEOUT_MS = 5000;
+/*
+ * --------------------------------------------------
+ * Temporal Activities
+ *
+ * IMPORTANT:
+ * Activities must be called through proxyActivities()
+ * from inside a Temporal Workflow.
+ *
+ * Retry:
+ * - Maximum 3 attempts
+ * - PermanentSupplierError is NOT retried
+ * --------------------------------------------------
  */
 const { fetchSupplierA, fetchSupplierB, } = (0, workflow_1.proxyActivities)({
-    /**
-     * Maximum time allowed for an Activity execution.
-     *
-     * Our business timeout below is 5 seconds,
-     * while Temporal itself allows 10 seconds.
-     */
-    startToCloseTimeout: "10 seconds",
-    /**
-     * Retry configuration.
-     */
+    startToCloseTimeout: "5 seconds",
     retry: {
         maximumAttempts: 3,
-        initialInterval: "100 milliseconds",
-        maximumInterval: "500 milliseconds",
-        backoffCoefficient: 2,
         nonRetryableErrorTypes: [
             "PermanentSupplierError",
         ],
     },
 });
-/**
- * ----------------------------------------------------
- * Supplier Timeout Error
- * ----------------------------------------------------
+/*
+ * --------------------------------------------------
+ * Temporal Query
  *
- * This is different from Temporal's
- * CancelledFailure.
- *
- * Supplier timeout:
- *     Only that supplier fails.
- *
- * User cancellation:
- *     Entire workflow is cancelled.
+ * Express can query a running workflow and retrieve
+ * the current visualization state.
+ * --------------------------------------------------
  */
-class SupplierTimeoutError extends Error {
-    constructor(supplierName) {
-        super(`${supplierName} timed out after 5 seconds`);
-        this.name = "SupplierTimeoutError";
-    }
-}
-/**
- * ----------------------------------------------------
- * Run Supplier With 5 Second Timeout
- * ----------------------------------------------------
- *
- * Supplier A and Supplier B each receive their
- * own independent 5-second timeout.
- *
- * If Supplier A times out:
- *
- *      Supplier A ❌
- *      Supplier B ✅
- *
- * The workflow continues.
- *
- * If the USER cancels the workflow:
- *
- *      Entire workflow ❌
- */
-async function runSupplierWithTimeout(supplierName, supplier) {
-    /**
-     * Scope responsible for the supplier Activity.
-     */
-    const activityScope = new workflow_1.CancellationScope();
-    /**
-     * Separate scope responsible for the
-     * 5-second timer.
-     */
-    const timeoutScope = new workflow_1.CancellationScope();
-    /**
-     * Start supplier Activity.
-     */
-    const activityPromise = activityScope.run(supplier);
-    /**
-     * Start 5-second timeout.
-     */
-    const timeoutPromise = timeoutScope.run(async () => {
-        /**
-         * Wait 5 seconds using Temporal's
-         * deterministic timer.
-         */
-        await (0, workflow_1.sleep)("5 seconds");
-        /**
-         * Supplier has exceeded the
-         * business timeout.
-         *
-         * Cancel only this supplier.
-         */
-        activityScope.cancel();
-        /**
-         * Convert the timeout into a
-         * normal application error.
-         */
-        throw new SupplierTimeoutError(supplierName);
-    });
-    try {
-        /**
-         * Whichever happens first wins:
-         *
-         * 1. Supplier returns
-         * 2. Supplier fails
-         * 3. 5-second timeout occurs
-         * 4. User cancels workflow
-         */
-        return await Promise.race([
-            activityPromise,
-            timeoutPromise,
-        ]);
-    }
-    finally {
-        /**
-         * If supplier finishes before 5 seconds,
-         * stop the timeout timer.
-         */
-        timeoutScope.cancel();
-    }
-}
-/**
- * ----------------------------------------------------
- * HOTEL SEARCH WORKFLOW
- * ----------------------------------------------------
+exports.workflowStatusQuery = (0, workflow_1.defineQuery)("workflowStatus");
+/*
+ * --------------------------------------------------
+ * Run Supplier With Timeout
+ * --------------------------------------------------
  *
  * IMPORTANT:
- * This must remain a named export because:
+ * The activity call itself is inside the
+ * CancellationScope.
  *
- * - Tests import it
- * - Search API imports it
- * - Temporal Client uses it
+ * This allows the 5-second timeout to cancel
+ * the running activity correctly.
+ * --------------------------------------------------
+ */
+async function runSupplierWithTimeout(supplier, search) {
+    try {
+        return await workflow_1.CancellationScope.withTimeout(SUPPLIER_TIMEOUT_MS, async () => {
+            try {
+                const hotels = supplier === "SupplierA"
+                    ? await fetchSupplierA(search)
+                    : await fetchSupplierB(search);
+                return {
+                    kind: "success",
+                    hotels,
+                };
+            }
+            catch (error) {
+                /*
+                 * User cancellation must propagate out of
+                 * the workflow rather than being treated as
+                 * a supplier failure.
+                 */
+                if ((0, workflow_1.isCancellation)(error)) {
+                    throw error;
+                }
+                return {
+                    kind: "failed",
+                    error,
+                };
+            }
+        });
+    }
+    catch (error) {
+        /*
+         * A Temporal timeout is represented as an
+         * ApplicationFailure with TimeoutError.
+         */
+        if (error instanceof workflow_1.ApplicationFailure &&
+            error.type === "TimeoutError") {
+            return {
+                kind: "timeout",
+            };
+        }
+        /*
+         * Preserve user cancellation.
+         */
+        if ((0, workflow_1.isCancellation)(error)) {
+            throw error;
+        }
+        throw error;
+    }
+}
+/*
+ * --------------------------------------------------
+ * Initial Workflow Visualization State
+ * --------------------------------------------------
+ */
+function createInitialWorkflowSteps() {
+    return [
+        {
+            id: "search-request",
+            name: "Search Request",
+            description: "Hotel search request received",
+            status: "COMPLETED",
+        },
+        {
+            id: "temporal-workflow",
+            name: "Temporal Workflow",
+            description: "Temporal workflow started",
+            status: "RUNNING",
+        },
+        {
+            id: "supplier-a",
+            name: "Supplier A",
+            description: "Fetching hotel rates from Supplier A",
+            status: "PENDING",
+        },
+        {
+            id: "supplier-b",
+            name: "Supplier B",
+            description: "Fetching hotel rates from Supplier B",
+            status: "PENDING",
+        },
+        {
+            id: "compare-rates",
+            name: "Compare Rates",
+            description: "Comparing hotel prices",
+            status: "PENDING",
+        },
+        {
+            id: "best-rate",
+            name: "Best Rate",
+            description: "Selecting cheapest available hotel",
+            status: "PENDING",
+        },
+    ];
+}
+/*
+ * --------------------------------------------------
+ * Convert Supplier Execution -> SupplierStatus
+ * --------------------------------------------------
+ */
+function createSupplierStatus(supplier, result) {
+    if (result.kind === "timeout") {
+        return {
+            supplier,
+            status: "TIMEOUT",
+            hotels: [],
+            error: supplier === "SupplierA"
+                ? "Supplier A timed out after 5 seconds"
+                : "Supplier B timed out after 5 seconds",
+        };
+    }
+    if (result.kind === "failed") {
+        return {
+            supplier,
+            status: "FAILED",
+            hotels: [],
+            error: result.error instanceof Error
+                ? result.error.message
+                : supplier === "SupplierA"
+                    ? "Supplier A failed"
+                    : "Supplier B failed",
+        };
+    }
+    if (result.hotels.length === 0) {
+        return {
+            supplier,
+            status: "EMPTY",
+            hotels: [],
+        };
+    }
+    return {
+        supplier,
+        status: "SUCCESS",
+        hotels: result.hotels,
+    };
+}
+/*
+ * --------------------------------------------------
+ * Hotel Search Workflow
+ * --------------------------------------------------
  */
 async function hotelSearchWorkflow(search) {
-    console.log("Hotel workflow started");
-    /**
-     * --------------------------------------------------
-     * Call Supplier A and Supplier B in parallel
-     * --------------------------------------------------
+    /*
+     * Workflow visualization state.
+     *
+     * Temporal Query reads this variable.
      */
-    const [supplierAResult, supplierBResult,] = await Promise.allSettled([
-        runSupplierWithTimeout("Supplier A", () => fetchSupplierA(search)),
-        runSupplierWithTimeout("Supplier B", () => fetchSupplierB(search)),
-    ]);
-    /**
-     * --------------------------------------------------
-     * Store successful supplier results
-     * --------------------------------------------------
+    let workflowSteps = createInitialWorkflowSteps();
+    /*
+     * Register query handler.
      */
-    let hotelsA = [];
-    let hotelsB = [];
-    let supplierAFailed = false;
-    let supplierBFailed = false;
-    /**
+    (0, workflow_1.setHandler)(exports.workflowStatusQuery, () => workflowSteps);
+    /*
      * --------------------------------------------------
-     * Supplier A Result
-     * --------------------------------------------------
-     */
-    if (supplierAResult.status === "fulfilled") {
-        hotelsA = supplierAResult.value;
-    }
-    else {
-        /**
-         * IMPORTANT:
-         *
-         * A real user/workflow cancellation must
-         * propagate and cancel the entire workflow.
-         */
-        if ((0, workflow_1.isCancellation)(supplierAResult.reason)) {
-            throw supplierAResult.reason;
-        }
-        /**
-         * Otherwise this is:
-         *
-         * - Supplier A server error
-         * - Supplier A timeout
-         * - Supplier A temporary failure after retries
-         */
-        supplierAFailed = true;
-        console.log("Supplier A failed or timed out:", supplierAResult.reason);
-    }
-    /**
-     * --------------------------------------------------
-     * Supplier B Result
-     * --------------------------------------------------
-     */
-    if (supplierBResult.status === "fulfilled") {
-        hotelsB = supplierBResult.value;
-    }
-    else {
-        /**
-         * Real workflow cancellation.
-         */
-        if ((0, workflow_1.isCancellation)(supplierBResult.reason)) {
-            throw supplierBResult.reason;
-        }
-        /**
-         * Supplier B failure or timeout.
-         */
-        supplierBFailed = true;
-        console.log("Supplier B failed or timed out:", supplierBResult.reason);
-    }
-    /**
-     * --------------------------------------------------
-     * BOTH SUPPLIERS FAILED
-     * --------------------------------------------------
-     */
-    if (supplierAFailed &&
-        supplierBFailed) {
-        return {
-            hotel: null,
-            message: "Both hotel suppliers failed",
-        };
-    }
-    /**
-     * --------------------------------------------------
-     * FIND CHEAPEST HOTEL
+     * Supplier A + Supplier B
      * --------------------------------------------------
      *
-     * This works even if only one supplier
-     * successfully returned hotels.
+     * Both suppliers run in parallel.
      */
-    const cheapestHotel = (0, hotel_comparison_1.findCheapestHotel)(hotelsA, hotelsB);
-    /**
-     * --------------------------------------------------
-     * BOTH SUPPLIERS RETURNED EMPTY
-     * --------------------------------------------------
-     */
-    if (!cheapestHotel) {
-        return {
-            hotel: null,
-            message: "No hotels found",
-        };
+    workflowSteps = workflowSteps.map((step) => {
+        if (step.id === "supplier-a" ||
+            step.id === "supplier-b") {
+            return {
+                ...step,
+                status: "RUNNING",
+            };
+        }
+        return step;
+    });
+    let supplierAResult;
+    let supplierBResult;
+    try {
+        [
+            supplierAResult,
+            supplierBResult,
+        ] = await Promise.all([
+            runSupplierWithTimeout("SupplierA", search),
+            runSupplierWithTimeout("SupplierB", search),
+        ]);
     }
-    /**
+    catch (error) {
+        /*
+         * User cancellation must cancel the workflow.
+         */
+        if ((0, workflow_1.isCancellation)(error)) {
+            throw error;
+        }
+        throw error;
+    }
+    /*
      * --------------------------------------------------
-     * SUCCESS
+     * Convert results into SupplierStatus
+     * --------------------------------------------------
+     */
+    const supplierAStatus = createSupplierStatus("SupplierA", supplierAResult);
+    const supplierBStatus = createSupplierStatus("SupplierB", supplierBResult);
+    /*
+     * --------------------------------------------------
+     * Update Supplier A/B workflow nodes
+     * --------------------------------------------------
+     */
+    workflowSteps = workflowSteps.map((step) => {
+        if (step.id === "supplier-a") {
+            return {
+                ...step,
+                status: supplierAStatus.status ===
+                    "TIMEOUT"
+                    ? "TIMEOUT"
+                    : supplierAStatus.status ===
+                        "FAILED"
+                        ? "FAILED"
+                        : "COMPLETED",
+            };
+        }
+        if (step.id === "supplier-b") {
+            return {
+                ...step,
+                status: supplierBStatus.status ===
+                    "TIMEOUT"
+                    ? "TIMEOUT"
+                    : supplierBStatus.status ===
+                        "FAILED"
+                        ? "FAILED"
+                        : "COMPLETED",
+            };
+        }
+        if (step.id === "temporal-workflow") {
+            return {
+                ...step,
+                status: "COMPLETED",
+            };
+        }
+        return step;
+    });
+    /*
+     * --------------------------------------------------
+     * Collect available hotels
+     * --------------------------------------------------
+     */
+    const hotelsA = supplierAResult.kind === "success"
+        ? supplierAResult.hotels
+        : [];
+    const hotelsB = supplierBResult.kind === "success"
+        ? supplierBResult.hotels
+        : [];
+    const allHotels = [
+        ...hotelsA,
+        ...hotelsB,
+    ];
+    /*
+     * --------------------------------------------------
+     * Compare Rates
+     * --------------------------------------------------
+     */
+    workflowSteps = workflowSteps.map((step) => {
+        if (step.id === "compare-rates") {
+            return {
+                ...step,
+                status: "RUNNING",
+            };
+        }
+        return step;
+    });
+    /*
+     * Small delay so the frontend can visibly
+     * display Compare Rates -> RUNNING.
+     */
+    await (0, workflow_1.sleep)(300);
+    /*
+     * --------------------------------------------------
+     * Find Cheapest Hotel
+     * --------------------------------------------------
+     *
+     * Lower price wins.
+     *
+     * If prices are equal:
+     * Supplier A wins.
+     * --------------------------------------------------
+     */
+    const cheapestHotel = allHotels.length > 0
+        ? [...allHotels].sort((a, b) => {
+            /*
+             * Different prices
+             */
+            if (a.price !== b.price) {
+                return a.price - b.price;
+            }
+            /*
+             * Same price:
+             * Supplier A gets priority.
+             */
+            if (a.supplier === "SupplierA" &&
+                b.supplier === "SupplierB") {
+                return -1;
+            }
+            if (a.supplier === "SupplierB" &&
+                b.supplier === "SupplierA") {
+                return 1;
+            }
+            return 0;
+        })[0]
+        : null;
+    /*
+     * --------------------------------------------------
+     * Comparison completed
+     * --------------------------------------------------
+     */
+    workflowSteps = workflowSteps.map((step) => {
+        if (step.id === "compare-rates") {
+            return {
+                ...step,
+                status: "COMPLETED",
+            };
+        }
+        if (step.id === "best-rate") {
+            return {
+                ...step,
+                status: "RUNNING",
+            };
+        }
+        return step;
+    });
+    /*
+     * Small delay for frontend visualization.
+     */
+    await (0, workflow_1.sleep)(300);
+    /*
+     * --------------------------------------------------
+     * Best Rate selected
+     * --------------------------------------------------
+     */
+    workflowSteps = workflowSteps.map((step) => {
+        if (step.id === "best-rate") {
+            return {
+                ...step,
+                status: "COMPLETED",
+            };
+        }
+        return step;
+    });
+    /*
+     * --------------------------------------------------
+     * Determine final message
+     * --------------------------------------------------
+     */
+    let message;
+    if (cheapestHotel) {
+        message =
+            `Best rate found: ${cheapestHotel.name} ` +
+                `at ₹${cheapestHotel.price} ` +
+                `from ${cheapestHotel.supplier}.`;
+    }
+    else {
+        const supplierAFailed = supplierAStatus.status === "FAILED" ||
+            supplierAStatus.status === "TIMEOUT";
+        const supplierBFailed = supplierBStatus.status === "FAILED" ||
+            supplierBStatus.status === "TIMEOUT";
+        /*
+         * Both suppliers failed/timed out.
+         */
+        if (supplierAFailed &&
+            supplierBFailed) {
+            message =
+                "Both hotel suppliers failed";
+        }
+        else {
+            /*
+             * Suppliers responded successfully but
+             * returned no hotels.
+             */
+            message = "No hotels found";
+        }
+    }
+    /*
+     * --------------------------------------------------
+     * Final Result
      * --------------------------------------------------
      */
     return {
         hotel: cheapestHotel,
-        message: "Hotel found successfully",
+        message,
+        search,
+        suppliers: [
+            supplierAStatus,
+            supplierBStatus,
+        ],
+        workflowSteps,
     };
 }

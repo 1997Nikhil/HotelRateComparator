@@ -1,259 +1,199 @@
-import { Router } from "express";
-
-import {
-  Client,
-  Connection,
-} from "@temporalio/client";
+import { Router, Request, Response } from "express";
+import { Connection, Client } from "@temporalio/client";
 
 import {
   hotelSearchWorkflow,
+  workflowStatusQuery,
 } from "../workflows/hotel.workflow";
 
-import {
-  pool,
-} from "../database/postgres";
+import type { SearchRequest } from "../types/hotel.types";
 
+import { pool } from "../database/postgres";
 
 const router = Router();
 
-
-let temporalClient:
-  Client | null = null;
-
-
-/**
- * Get / create Temporal client
+/*
+ * --------------------------------------------------
+ * Temporal Client
+ * --------------------------------------------------
  */
-async function getTemporalClient() {
 
-  if (temporalClient) {
-    return temporalClient;
-  }
+async function getTemporalClient(): Promise<Client> {
+  const connection = await Connection.connect({
+    address:
+      process.env.TEMPORAL_ADDRESS ||
+      "localhost:7233",
+  });
 
-
-  const connection =
-    await Connection.connect({
-      address:
-        process.env.TEMPORAL_ADDRESS ||
-        "localhost:7233",
-    });
-
-
-  temporalClient =
-    new Client({
-      connection,
-    });
-
-
-  return temporalClient;
+  return new Client({
+    connection,
+  });
 }
 
-
-/**
- * ==========================================
- * START HOTEL SEARCH
- * ==========================================
+/*
+ * --------------------------------------------------
+ * POST /api/search-hotels
  *
- * Starts Temporal Workflow and immediately
- * returns workflowId.
- *
- * This is important because the frontend
- * needs workflowId to cancel the Workflow.
+ * Start Temporal Workflow
+ * --------------------------------------------------
  */
+
 router.post(
-  "/api/search-hotels",
-  async (req, res) => {
-
+  "/search-hotels",
+  async (req: Request, res: Response) => {
     try {
-
       const {
         city,
         checkIn,
         checkOut,
         scenario,
-      } = req.body;
-
+      } = req.body as SearchRequest;
 
       /*
        * Validate request
        */
-      if (
-        !city ||
-        !checkIn ||
-        !checkOut
-      ) {
-
+      if (!city || !checkIn || !checkOut) {
         return res.status(400).json({
           message:
-            "City, check-in and check-out dates are required",
+            "city, checkIn and checkOut are required.",
         });
       }
 
-
-      const client =
-        await getTemporalClient();
-
+      /*
+       * Connect to Temporal
+       */
+      const client = await getTemporalClient();
 
       /*
-       * Generate unique Workflow ID
+       * Generate unique workflow ID
        */
       const workflowId =
         `hotel-search-${Date.now()}-${Math.random()
           .toString(36)
           .substring(2, 8)}`;
 
-
       /*
        * Start Temporal Workflow
        */
-      const handle =
-        await client.workflow.start(
-          hotelSearchWorkflow,
-          {
+      await client.workflow.start(
+        hotelSearchWorkflow,
+        {
+          taskQueue:
+            process.env.TEMPORAL_TASK_QUEUE ||
+            "HOTEL_TASK_QUEUE",
 
-            args: [
-              {
-                city,
-                checkIn,
-                checkOut,
-                scenario,
-              },
-            ],
+          workflowId,
 
-            taskQueue:
-              process.env.TEMPORAL_TASK_QUEUE ||
-              "HOTEL_TASK_QUEUE",
-
-            workflowId,
-          }
-        );
-
-
-      console.log(
-        "Workflow started:",
-        handle.workflowId
+          args: [
+            {
+              city,
+              checkIn,
+              checkOut,
+              scenario,
+            },
+          ],
+        }
       );
 
-
-      /*
-       * IMPORTANT:
-       *
-       * Do NOT wait for handle.result().
-       *
-       * Return immediately so frontend
-       * can poll and cancel.
-       */
       return res.status(202).json({
-
-        workflowId:
-          handle.workflowId,
-
+        workflowId,
         status: "RUNNING",
-
         message:
-          "Hotel search started",
+          "Hotel search started.",
       });
-
     } catch (error) {
-
       console.error(
-        "Unable to start hotel search:",
+        "Failed to start hotel workflow:",
         error
       );
 
-
       return res.status(500).json({
-
         message:
-          "Unable to start hotel search",
+          "Failed to start hotel search.",
       });
     }
   }
 );
 
-
-/**
- * ==========================================
- * GET SEARCH STATUS
- * ==========================================
+/*
+ * --------------------------------------------------
+ * GET /api/search-hotels/:workflowId
+ *
+ * Get current Temporal workflow state
+ * --------------------------------------------------
  */
+
 router.get(
-  "/api/search-hotels/:workflowId",
-  async (req, res) => {
+  "/search-hotels/:workflowId",
+  async (req: Request, res: Response) => {
+    const workflowId = req.params.workflowId as string;
 
     try {
-
-      const client =
-        await getTemporalClient();
-
-
-      const handle =
-        client.workflow.getHandle(
-          req.params.workflowId
-        );
-
+      /*
+       * Connect to Temporal
+       */
+      const client = await getTemporalClient();
 
       /*
-       * Get current Workflow status
+       * Get workflow handle
+       */
+      const handle =
+        client.workflow.getHandle(workflowId);
+
+      /*
+       * Get workflow execution status
        */
       const description =
         await handle.describe();
 
-
       const status =
         description.status.name;
 
-
       /*
-       * --------------------------------------
-       * Workflow still running
-       * --------------------------------------
+       * --------------------------------------------
+       * RUNNING
+       *
+       * Query the workflow for live workflow steps.
+       * --------------------------------------------
        */
+
       if (status === "RUNNING") {
+        const workflowSteps =
+          await handle.query(
+            workflowStatusQuery
+          );
 
         return res.json({
-
-          workflowId:
-            req.params.workflowId,
-
+          workflowId,
           status: "RUNNING",
-
           hotel: null,
-
           message:
-            "Hotel search is still running",
-
+            "Hotel search is still running.",
           suppliers: [],
+          workflowSteps,
         });
       }
 
-
       /*
-       * --------------------------------------
-       * Workflow completed
-       * --------------------------------------
+       * --------------------------------------------
+       * COMPLETED
+       * --------------------------------------------
        */
-      if (
-        status === "COMPLETED"
-      ) {
 
+      if (status === "COMPLETED") {
         const result =
           await handle.result();
 
-
         /*
-         * Save successful search result.
+         * Save best hotel to PostgreSQL.
          *
-         * ON CONFLICT prevents duplicate
-         * database records if frontend polls
-         * the completed workflow more than once.
+         * ON CONFLICT prevents duplicate inserts
+         * when the frontend polls multiple times.
          */
         if (result.hotel) {
-
           await pool.query(
             `
-            INSERT INTO hotel_searches
-            (
+            INSERT INTO hotel_searches (
               workflow_id,
               city,
               check_in,
@@ -263,8 +203,7 @@ router.get(
               price,
               supplier
             )
-            VALUES
-            (
+            VALUES (
               $1,
               $2,
               $3,
@@ -278,184 +217,147 @@ router.get(
             DO NOTHING
             `,
             [
-
-              req.params.workflowId,
-
+              workflowId,
               result.search.city,
-
               result.search.checkIn,
-
               result.search.checkOut,
-
               result.hotel.hotelId,
-
               result.hotel.name,
-
               result.hotel.price,
-
               result.hotel.supplier,
-
             ]
           );
         }
 
-
+        /*
+         * Return complete workflow result.
+         *
+         * This includes:
+         * - best hotel
+         * - both suppliers
+         * - workflow steps
+         * - search information
+         */
         return res.json({
-
-          workflowId:
-            req.params.workflowId,
-
+          workflowId,
           status: "COMPLETED",
-
           ...result,
         });
       }
 
-
       /*
-       * --------------------------------------
-       * Workflow cancelled
-       * --------------------------------------
+       * --------------------------------------------
+       * CANCELLED
+       * --------------------------------------------
        */
-      if (
-        status === "CANCELLED"
-      ) {
 
+      if (status === "CANCELLED") {
         return res.json({
-
-          workflowId:
-            req.params.workflowId,
-
+          workflowId,
           status: "CANCELLED",
-
           hotel: null,
-
+          suppliers: [],
+          workflowSteps: [],
           message:
-            "Hotel search was cancelled",
+            "Hotel search was cancelled.",
         });
       }
 
-
       /*
-       * --------------------------------------
-       * Workflow failed
-       * --------------------------------------
+       * --------------------------------------------
+       * FAILED
+       * --------------------------------------------
        */
-      if (
-        status === "FAILED"
-      ) {
 
+      if (status === "FAILED") {
         return res.json({
-
-          workflowId:
-            req.params.workflowId,
-
+          workflowId,
           status: "FAILED",
-
           hotel: null,
-
+          suppliers: [],
+          workflowSteps: [],
           message:
-            "Hotel search failed",
+            "Hotel search workflow failed.",
         });
       }
 
-
       /*
-       * Other terminal state
+       * --------------------------------------------
+       * UNKNOWN STATUS
+       * --------------------------------------------
        */
+
       return res.json({
-
-        workflowId:
-          req.params.workflowId,
-
+        workflowId,
         status,
-
         hotel: null,
-
+        suppliers: [],
+        workflowSteps: [],
         message:
-          `Workflow finished with status: ${status}`,
+          `Workflow status: ${status}`,
       });
-
     } catch (error) {
-
       console.error(
-        "Unable to get Workflow status:",
+        "Failed to get workflow status:",
         error
       );
 
-
       return res.status(500).json({
-
         message:
-          "Unable to get search status",
+          "Failed to get hotel search status.",
       });
     }
   }
 );
 
-
-/**
- * ==========================================
- * CANCEL SEARCH
- * ==========================================
+/*
+ * --------------------------------------------------
+ * POST /api/cancel-search/:workflowId
+ *
+ * Cancel running Temporal Workflow
+ * --------------------------------------------------
  */
+
 router.post(
-  "/api/cancel-search/:workflowId",
-  async (req, res) => {
+  "/cancel-search/:workflowId",
+  async (req: Request, res: Response) => {
+    const workflowId = req.params.workflowId as string;
 
     try {
-
-      const client =
-        await getTemporalClient();
-
-
-      const handle =
-        client.workflow.getHandle(
-          req.params.workflowId
-        );
-
+      /*
+       * Connect to Temporal
+       */
+      const client = await getTemporalClient();
 
       /*
-       * Send cancellation request
-       * to Temporal.
+       * Get workflow handle
+       */
+      const handle =
+        client.workflow.getHandle(workflowId);
+
+      /*
+       * Request cancellation
        */
       await handle.cancel();
 
-
-      console.log(
-        "Workflow cancellation requested:",
-        req.params.workflowId
-      );
-
-
       return res.json({
-
-        workflowId:
-          req.params.workflowId,
-
-        status:
-          "CANCEL_REQUESTED",
-
+        workflowId,
+        status: "CANCELLED",
         message:
-          "Search cancellation requested",
+          "Hotel search cancellation requested.",
       });
-
     } catch (error) {
-
       console.error(
-        "Unable to cancel Workflow:",
+        "Failed to cancel workflow:",
         error
       );
 
-
       return res.status(500).json({
-
         message:
-          "Unable to cancel search",
+          "Failed to cancel hotel search.",
       });
     }
   }
 );
-
 
 export default router;

@@ -1,13 +1,13 @@
 import axios from "axios";
 
-const API_URL =
-  "http://localhost:5000";
+const API_URL = "http://localhost:5000";
 
-/**
- * ----------------------------------------------------
- * HOTEL
- * ----------------------------------------------------
+/*
+ * --------------------------------------------------
+ * Hotel
+ * --------------------------------------------------
  */
+
 export interface Hotel {
   hotelId: string;
   name: string;
@@ -15,11 +15,12 @@ export interface Hotel {
   supplier: string;
 }
 
-/**
- * ----------------------------------------------------
- * SEARCH REQUEST
- * ----------------------------------------------------
+/*
+ * --------------------------------------------------
+ * Search Request
+ * --------------------------------------------------
  */
+
 export interface SearchRequest {
   city: string;
   checkIn: string;
@@ -27,32 +28,54 @@ export interface SearchRequest {
   scenario?: string;
 }
 
-/**
- * ----------------------------------------------------
- * SUPPLIER STATUS
- * ----------------------------------------------------
+/*
+ * --------------------------------------------------
+ * Supplier Status
+ * --------------------------------------------------
  */
+
 export interface SupplierStatus {
-  supplier:
-    | "SupplierA"
-    | "SupplierB";
+  supplier: "SupplierA" | "SupplierB";
 
   status:
     | "SUCCESS"
     | "FAILED"
     | "TIMEOUT"
-    | "EMPTY";
+    | "EMPTY"
+    | "RUNNING";
 
   hotels: Hotel[];
 
   error?: string;
 }
 
-/**
- * ----------------------------------------------------
- * START SEARCH RESPONSE
- * ----------------------------------------------------
+/*
+ * --------------------------------------------------
+ * Temporal Workflow Step
+ * --------------------------------------------------
  */
+
+export interface WorkflowStep {
+  id: string;
+
+  name: string;
+
+  description: string;
+
+  status:
+    | "PENDING"
+    | "RUNNING"
+    | "COMPLETED"
+    | "FAILED"
+    | "TIMEOUT";
+}
+
+/*
+ * --------------------------------------------------
+ * Start Search Response
+ * --------------------------------------------------
+ */
+
 export interface SearchStartResponse {
   workflowId: string;
 
@@ -61,11 +84,12 @@ export interface SearchStartResponse {
   message: string;
 }
 
-/**
- * ----------------------------------------------------
- * SEARCH STATUS RESPONSE
- * ----------------------------------------------------
+/*
+ * --------------------------------------------------
+ * Search Status Response
+ * --------------------------------------------------
  */
+
 export interface SearchStatusResponse {
   workflowId: string;
 
@@ -82,17 +106,19 @@ export interface SearchStatusResponse {
   search?: SearchRequest;
 
   suppliers?: SupplierStatus[];
+
+  workflowSteps?: WorkflowStep[];
 }
 
-/**
- * ----------------------------------------------------
- * START SEARCH
- * ----------------------------------------------------
+/*
+ * --------------------------------------------------
+ * Start Search
+ * --------------------------------------------------
  */
+
 export async function startHotelSearch(
   data: SearchRequest
 ): Promise<SearchStartResponse> {
-
   const response =
     await axios.post(
       `${API_URL}/api/search-hotels`,
@@ -102,15 +128,15 @@ export async function startHotelSearch(
   return response.data;
 }
 
-/**
- * ----------------------------------------------------
- * GET SEARCH STATUS
- * ----------------------------------------------------
+/*
+ * --------------------------------------------------
+ * Get Search Status
+ * --------------------------------------------------
  */
+
 export async function getHotelSearchStatus(
   workflowId: string
 ): Promise<SearchStatusResponse> {
-
   const response =
     await axios.get(
       `${API_URL}/api/search-hotels/${workflowId}`
@@ -119,15 +145,15 @@ export async function getHotelSearchStatus(
   return response.data;
 }
 
-/**
- * ----------------------------------------------------
- * CANCEL SEARCH
- * ----------------------------------------------------
+/*
+ * --------------------------------------------------
+ * Cancel Search
+ * --------------------------------------------------
  */
+
 export async function cancelHotelSearch(
   workflowId: string
 ): Promise<void> {
-
   await axios.post(
     `${API_URL}/api/cancel-search/${workflowId}`
   );

@@ -14,24 +14,34 @@ export interface SearchRequest {
 
 export interface SupplierStatus {
   supplier: "SupplierA" | "SupplierB";
-
   status:
     | "SUCCESS"
     | "FAILED"
     | "TIMEOUT"
-    | "EMPTY";
-
+    | "EMPTY"
+    | "RUNNING";
   hotels: Hotel[];
-
   error?: string;
+}
+
+export type WorkflowStepStatus =
+  | "PENDING"
+  | "RUNNING"
+  | "COMPLETED"
+  | "FAILED"
+  | "TIMEOUT";
+
+export interface WorkflowStep {
+  id: string;
+  name: string;
+  description: string;
+  status: WorkflowStepStatus;
 }
 
 export interface SearchResult {
   hotel: Hotel | null;
-
   message: string;
-
   search: SearchRequest;
-
   suppliers: SupplierStatus[];
+  workflowSteps: WorkflowStep[];
 }
