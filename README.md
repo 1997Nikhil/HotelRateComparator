@@ -4,6 +4,10 @@ A production-style **Hotel Rate Comparator** built with **React, Node.js, TypeSc
 
 The application searches multiple hotel suppliers **in parallel**, handles supplier failures and timeouts, compares available hotel rates, and returns the **cheapest available hotel**.
 
+<p align="center">
+  <img src="./screenshots/hotel-rate-comparator.png" alt="Hotel Rate Comparator" width="900"/>
+</p>
+
 The project demonstrates real-world distributed-system concepts including:
 
 * ⚡ Parallel supplier execution
