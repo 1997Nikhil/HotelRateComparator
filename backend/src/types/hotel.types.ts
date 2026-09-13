@@ -12,16 +12,26 @@ export interface SearchRequest {
   scenario?: string;
 }
 
+export interface SupplierStatus {
+  supplier: "SupplierA" | "SupplierB";
+
+  status:
+    | "SUCCESS"
+    | "FAILED"
+    | "TIMEOUT"
+    | "EMPTY";
+
+  hotels: Hotel[];
+
+  error?: string;
+}
+
 export interface SearchResult {
   hotel: Hotel | null;
+
   message: string;
 
-  /**
-   * Optional because the original workflow
-   * result only contains hotel + message.
-   *
-   * Keeping this optional prevents the
-   * existing 12 tests from breaking.
-   */
-  search?: SearchRequest;
+  search: SearchRequest;
+
+  suppliers: SupplierStatus[];
 }

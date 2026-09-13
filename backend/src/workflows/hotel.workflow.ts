@@ -293,6 +293,7 @@ export async function hotelSearchWorkflow(
     return {
       hotel: null,
       message: "Both hotel suppliers failed",
+      search,
     };
   }
 
@@ -319,6 +320,7 @@ export async function hotelSearchWorkflow(
     return {
       hotel: null,
       message: "No hotels found",
+      search,
     };
   }
 
@@ -330,5 +332,6 @@ export async function hotelSearchWorkflow(
   return {
     hotel: cheapestHotel,
     message: "Hotel found successfully",
+    search,
   };
 }
