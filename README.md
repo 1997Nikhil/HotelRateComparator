@@ -4,12 +4,12 @@ A production-style **Hotel Rate Comparator** built with **React, Node.js, TypeSc
 
 The application searches multiple hotel suppliers **in parallel**, handles supplier failures and timeouts, compares available hotel rates, and returns the **cheapest available hotel**.
 
-The project demonstrates real-world concepts such as:
+The project demonstrates real-world distributed-system concepts including:
 
 * ⚡ Parallel supplier execution
 * 🔄 Durable Temporal Workflows
 * ⏱️ Supplier timeout handling
-* 🔁 Activity retries
+* 🔁 Temporal Activity retries
 * ❌ Failure isolation
 * 🛑 Workflow cancellation
 * 🗄️ PostgreSQL persistence
@@ -17,10 +17,11 @@ The project demonstrates real-world concepts such as:
 * 🐳 Docker-based infrastructure
 * 📡 Asynchronous API design
 * ⚛️ React frontend integration
+* 📊 Live workflow status visualization
 
 ---
 
-## 📌 Table of Contents
+# 📌 Table of Contents
 
 * [Overview](#-overview)
 * [Key Features](#-key-features)
@@ -31,26 +32,30 @@ The project demonstrates real-world concepts such as:
 * [Prerequisites](#-prerequisites)
 * [Installation](#-installation)
 * [Environment Variables](#-environment-variables)
+* [Docker Infrastructure](#-docker-infrastructure)
+* [Database](#-database)
 * [Running the Project](#-running-the-project)
-* [Docker Services](#-docker-services)
 * [API Documentation](#-api-documentation)
+* [Supplier APIs](#-supplier-apis)
 * [Search Scenarios](#-search-scenarios)
 * [Temporal Workflow](#-temporal-workflow)
-* [Timeout and Retry Strategy](#-timeout-and-retry-strategy)
-* [Cancellation](#-cancellation)
-* [Database](#-database)
-* [Testing](#-testing)
+* [Timeout Strategy](#-timeout-strategy)
+* [Retry Strategy](#-retry-strategy)
+* [Workflow Cancellation](#-workflow-cancellation)
 * [Frontend](#-frontend)
+* [Testing](#-testing)
 * [Troubleshooting](#-troubleshooting)
+* [Production Considerations](#-production-considerations)
 * [Future Improvements](#-future-improvements)
 * [Learning Outcomes](#-learning-outcomes)
+* [Quick Start](#-quick-start)
 * [Author](#-author)
 
 ---
 
 # 📖 Overview
 
-The **Hotel Rate Comparator** simulates a hotel search platform that communicates with multiple external hotel suppliers.
+The **Hotel Rate Comparator** simulates a hotel booking/search platform that communicates with multiple external hotel suppliers.
 
 Instead of calling suppliers sequentially:
 
@@ -65,27 +70,34 @@ Compare Results
 the application executes supplier searches concurrently:
 
 ```text
-             ┌───────────────┐
-             │ Hotel Search  │
-             └───────┬───────┘
-                     │
-              Temporal Workflow
-                     │
-          ┌──────────┴──────────┐
-          ↓                     ↓
-   ┌──────────────┐      ┌──────────────┐
-   │ Supplier A   │      │ Supplier B   │
-   │   Activity   │      │   Activity   │
-   └──────┬───────┘      └──────┬───────┘
-          │                     │
-          └──────────┬──────────┘
-                     ↓
-             Compare Hotel Rates
-                     ↓
-              Cheapest Hotel
+                    ┌──────────────────┐
+                    │  Search Request  │
+                    └────────┬─────────┘
+                             │
+                             ▼
+                    ┌──────────────────┐
+                    │ Temporal Workflow│
+                    └────────┬─────────┘
+                             │
+                  ┌──────────┴──────────┐
+                  ▼                     ▼
+          ┌──────────────┐      ┌──────────────┐
+          │  Supplier A  │      │  Supplier B  │
+          │   Activity   │      │   Activity   │
+          └──────┬───────┘      └──────┬───────┘
+                 │                     │
+                 └──────────┬──────────┘
+                            ▼
+                    ┌───────────────┐
+                    │ Compare Rates │
+                    └───────┬───────┘
+                            ▼
+                    ┌───────────────┐
+                    │ Cheapest Hotel│
+                    └───────────────┘
 ```
 
-This approach improves response time and provides resilience when one supplier becomes slow or unavailable.
+Because suppliers are executed concurrently, a slow or failed supplier does not necessarily prevent another supplier from returning a valid result.
 
 ---
 
@@ -93,95 +105,111 @@ This approach improves response time and provides resilience when one supplier b
 
 ## 🔎 Multi-Supplier Hotel Search
 
-The system queries:
+The system currently integrates two mock suppliers:
 
 * Supplier A
 * Supplier B
 
-in parallel.
-
-Each supplier returns mock hotel data containing:
+Each supplier returns hotel information containing:
 
 * Hotel ID
 * Hotel name
 * Price
 * Supplier name
 
----
+Example:
 
-## ⚡ Parallel Execution
-
-Temporal executes both supplier activities concurrently.
-
-```text
-                    Search Request
-                         │
-                         ▼
-                 Temporal Workflow
-                    /          \
-                   /            \
-                  ▼              ▼
-          Supplier A        Supplier B
-          Activity          Activity
-              │                 │
-              └───────┬─────────┘
-                      ▼
-                Compare Prices
-                      │
-                      ▼
-                Cheapest Hotel
+```json
+[
+  {
+    "hotelId": "A-101",
+    "name": "Grand Hotel",
+    "price": 120,
+    "supplier": "SupplierA"
+  },
+  {
+    "hotelId": "A-102",
+    "name": "City Palace Hotel",
+    "price": 100,
+    "supplier": "SupplierA"
+  }
+]
 ```
 
 ---
 
-## 💰 Cheapest Hotel Selection
+# ⚡ Parallel Supplier Execution
 
-All supplier results are combined and sorted by price.
+Both suppliers are executed concurrently inside the Temporal workflow.
+
+```text
+                         Search Request
+                               │
+                               ▼
+                       Temporal Workflow
+                               │
+                     ┌─────────┴─────────┐
+                     ▼                   ▼
+              Supplier A           Supplier B
+               Activity              Activity
+                     │                   │
+                     └─────────┬─────────┘
+                               ▼
+                         Compare Rates
+                               │
+                               ▼
+                         Best Rate
+```
+
+This prevents the system from unnecessarily waiting for Supplier A to completely finish before starting Supplier B.
+
+---
+
+# 💰 Cheapest Hotel Selection
+
+Results from successful suppliers are combined and compared by price.
 
 Example:
 
-| Hotel             | Supplier   |   Price |
-| ----------------- | ---------- | ------: |
-| Grand Hotel       | Supplier A |    $120 |
-| City Palace Hotel | Supplier A |    $100 |
-| Grand Hotel       | Supplier B |    $110 |
-| Royal Inn         | Supplier B | **$90** |
+| Hotel             | Supplier   | Price |
+| ----------------- | ---------- | ----: |
+| Grand Hotel       | Supplier A |  ₹120 |
+| City Palace Hotel | Supplier A |  ₹100 |
+| Grand Hotel       | Supplier B |  ₹110 |
+| Royal Inn         | Supplier B |   ₹90 |
 
-Result:
+The result is:
 
 ```text
 Royal Inn
-$90
+₹90
 Supplier B
 ```
 
+If two hotels have the same price, the comparison logic uses a deterministic tie-breaker and prefers **Supplier A**.
+
 ---
 
-# 🛡️ Fault Tolerance
+# 🛡️ Failure Isolation
 
-The workflow does not immediately fail when one supplier fails.
+A supplier failure does not automatically fail the entire hotel search.
 
-For example:
+Example:
 
 ```text
-Supplier A → ERROR
+Supplier A → FAILED
 Supplier B → SUCCESS
-                    ↓
-             Return Supplier B
+
+             ↓
+
+       Supplier B result
 ```
 
-If both suppliers fail:
-
-```text
-Supplier A → ERROR
-Supplier B → ERROR
-                    ↓
-        Both suppliers failed
-```
+If Supplier A fails while Supplier B succeeds, the successful supplier's results are still considered.
 
 ---
 
-# ⏱️ Supplier Timeout
+# ⏱️ Supplier Timeout Handling
 
 Each supplier has a business timeout of:
 
@@ -189,126 +217,136 @@ Each supplier has a business timeout of:
 5 seconds
 ```
 
-If a supplier does not respond within 5 seconds, the workflow treats that supplier as failed.
+If a supplier does not complete within five seconds, the workflow cancels that supplier execution and marks it as:
+
+```text
+TIMEOUT
+```
 
 Example:
 
 ```text
 Supplier A
     │
-    ├── 0s
     ├── 1s
     ├── 2s
     ├── 3s
     ├── 4s
     └── 5s → TIMEOUT
+
+Supplier B
+    │
+    └── SUCCESS
 ```
 
-The other supplier can still provide results.
+The successful supplier can still provide the final result.
 
 ---
 
-# 🔄 Retry Mechanism
+# 🔄 Activity Retry
 
-Temporal Activity retries are configured for transient failures.
+Temporal Activity retries are configured to handle transient failures.
 
-Example configuration:
+The workflow uses:
 
 ```text
-Maximum attempts: 3
-Initial interval: 100 ms
-Maximum interval: 500 ms
-Backoff coefficient: 2
+Maximum Attempts: 3
 ```
 
 Conceptually:
 
 ```text
-Attempt 1
-   ↓
-Failure
-   ↓
-100 ms
-   ↓
-Attempt 2
-   ↓
-Failure
-   ↓
-200 ms
-   ↓
-Attempt 3
+Attempt #1
+    │
+    └── Failure
+          │
+          ▼
+      Retry #2
+          │
+          └── Failure
+                │
+                ▼
+            Retry #3
+                │
+                ├── Success
+                │
+                └── Final Failure
 ```
 
-Permanent errors can be configured as non-retryable.
+Permanent errors can be configured as non-retryable using Temporal's error types.
 
 ---
 
 # 🛑 Workflow Cancellation
 
-A running hotel search can be cancelled.
+A running search can be cancelled through the backend API.
 
 ```text
-Frontend
-   │
-   │ POST /api/cancel-search/:workflowId
-   ▼
-Backend
-   │
-   ▼
-Temporal
-   │
-   ▼
-Cancel Workflow
+React Frontend
+      │
+      │ POST /api/cancel-search/:workflowId
+      ▼
+Express API
+      │
+      ▼
+Temporal Client
+      │
+      ▼
+Temporal Workflow
+      │
+      ▼
+Cancellation
 ```
 
-This is useful for long-running searches or when the user no longer needs the result.
+Cancellation is particularly useful for long-running searches where the user no longer needs the result.
 
 ---
 
 # 🏗️ Architecture
 
 ```text
-┌─────────────────────────────────────────────────────┐
-│                     React Frontend                  │
-│                                                     │
-│  Search Form → Search Status → Hotel Result         │
-└───────────────────────┬─────────────────────────────┘
-                        │ HTTP
-                        ▼
-┌─────────────────────────────────────────────────────┐
-│                 Node.js / Express API               │
-│                                                     │
-│  POST /api/search-hotels                            │
-│  GET  /api/search-hotels/:workflowId                │
-│  POST /api/cancel-search/:workflowId                │
-└───────────────────────┬─────────────────────────────┘
-                        │
-                        ▼
-              ┌────────────────────┐
-              │ Temporal Server    │
-              │                    │
-              │ Workflow Engine    │
-              └─────────┬──────────┘
-                        │
-                        ▼
-              ┌────────────────────┐
-              │ Temporal Worker    │
-              └─────────┬──────────┘
-                        │
-                 ┌──────┴──────┐
-                 ▼             ▼
-          Supplier A       Supplier B
-             API              API
-                 │             │
-                 └──────┬──────┘
-                        ▼
-                 Compare Results
-                        │
-                        ▼
-                 Cheapest Hotel
-                        │
-                        ▼
-                 PostgreSQL DB
+┌──────────────────────────────────────────────────────┐
+│                    React Frontend                    │
+│                                                      │
+│ Search Form → Workflow Status → Supplier Results     │
+│                    ↓                                 │
+│              Cheapest Hotel                          │
+└────────────────────────┬─────────────────────────────┘
+                         │ HTTP
+                         ▼
+┌──────────────────────────────────────────────────────┐
+│                 Node.js / Express API                │
+│                                                      │
+│ POST /api/search-hotels                              │
+│ GET  /api/search-hotels/:workflowId                  │
+│ POST /api/cancel-search/:workflowId                 │
+└────────────────────────┬─────────────────────────────┘
+                         │
+                         │ Temporal Client
+                         ▼
+                 ┌─────────────────┐
+                 │ Temporal Server  │
+                 └────────┬────────┘
+                          │
+                          ▼
+                 ┌─────────────────┐
+                 │ Temporal Worker │
+                 └────────┬────────┘
+                          │
+                    ┌─────┴─────┐
+                    ▼           ▼
+               Supplier A   Supplier B
+                  API           API
+                    │           │
+                    └─────┬─────┘
+                          ▼
+                   Compare Results
+                          │
+                          ▼
+                    Best Hotel
+                          │
+                          ▼
+                   PostgreSQL
 ```
 
 ---
@@ -340,6 +378,7 @@ This is useful for long-running searches or when the user no longer needs the re
 ## Database
 
 * PostgreSQL 16
+* `pg` connection pool
 
 ## Infrastructure
 
@@ -369,7 +408,8 @@ HotelRateComparatorProject/
 │   │   │   └── hotel.activities.ts
 │   │   │
 │   │   ├── database/
-│   │   │   └── postgres.ts
+│   │   │   ├── postgres.ts
+│   │   │   └── testConnection.ts
 │   │   │
 │   │   ├── routes/
 │   │   │   ├── search.routes.ts
@@ -414,21 +454,32 @@ HotelRateComparatorProject/
 
 # 🔄 How the System Works
 
-## Step 1 — User submits search
+## Step 1 — User submits a search
 
-The React application sends:
+The React frontend sends:
 
 ```http
 POST /api/search-hotels
 ```
 
-with:
+Example request:
 
 ```json
 {
   "city": "Mumbai",
-  "checkIn": "2026-09-10",
-  "checkOut": "2026-09-12"
+  "checkIn": "2026-09-20",
+  "checkOut": "2026-09-22"
+}
+```
+
+An optional scenario can also be provided:
+
+```json
+{
+  "city": "Mumbai",
+  "checkIn": "2026-09-20",
+  "checkOut": "2026-09-22",
+  "scenario": "supplierATimeout"
 }
 ```
 
@@ -436,15 +487,17 @@ with:
 
 ## Step 2 — Backend starts Temporal Workflow
 
-The Express API creates a Temporal workflow.
+The Express API creates a unique workflow ID and starts the Temporal workflow.
 
-Instead of waiting for the complete search, the API immediately returns:
+The API does **not** wait for the entire hotel search to finish.
+
+It immediately returns:
 
 ```json
 {
-  "workflowId": "hotel-search-123",
+  "workflowId": "hotel-search-172...",
   "status": "RUNNING",
-  "message": "Hotel search started"
+  "message": "Hotel search started."
 }
 ```
 
@@ -454,63 +507,80 @@ This makes the API asynchronous.
 
 ## Step 3 — Temporal executes supplier activities
 
-The workflow executes:
+The workflow executes Supplier A and Supplier B concurrently.
 
 ```text
-fetchSupplierA()
-fetchSupplierB()
-```
-
-in parallel.
-
----
-
-## Step 4 — Supplier results are collected
-
-Example:
-
-```json
-[
-  {
-    "hotelId": "A-101",
-    "name": "Grand Hotel",
-    "price": 120,
-    "supplier": "SupplierA"
-  }
-]
+                Temporal Workflow
+                       │
+               ┌───────┴───────┐
+               ▼               ▼
+         fetchSupplierA() fetchSupplierB()
+               │               │
+               └───────┬───────┘
+                       ▼
+                 Combine Results
 ```
 
 ---
 
-## Step 5 — Results are compared
+## Step 4 — Timeout and failure handling
 
-The comparison service combines the results:
+Each supplier execution is independently handled.
+
+Possible supplier states include:
 
 ```text
-Supplier A Results
-+
-Supplier B Results
-        ↓
-Compare Prices
-        ↓
-Cheapest Hotel
+SUCCESS
+FAILED
+TIMEOUT
+EMPTY
+RUNNING
 ```
+
+Therefore, one supplier can fail while the other still succeeds.
+
+---
+
+## Step 5 — Compare Rates
+
+Successful hotel results are passed to:
+
+```text
+findCheapestHotel()
+```
+
+The service combines the supplier results and selects the lowest price.
 
 ---
 
 ## Step 6 — Frontend polls workflow status
 
-The frontend calls:
+The frontend periodically calls:
 
 ```http
 GET /api/search-hotels/:workflowId
 ```
 
-until the workflow is complete.
+While the workflow is running, the API returns the current workflow state and workflow visualization steps.
+
+Example:
+
+```json
+{
+  "workflowId": "hotel-search-123",
+  "status": "RUNNING",
+  "hotel": null,
+  "message": "Hotel search is still running.",
+  "suppliers": [],
+  "workflowSteps": []
+}
+```
 
 ---
 
-## Step 7 — Final result
+## Step 7 — Workflow completes
+
+Once Temporal completes the workflow, the backend obtains the final result.
 
 Example:
 
@@ -524,7 +594,7 @@ Example:
     "price": 90,
     "supplier": "SupplierB"
   },
-  "message": "Hotel found successfully"
+  "message": "Best rate found: Royal Inn at ₹90 from SupplierB."
 }
 ```
 
@@ -532,41 +602,27 @@ Example:
 
 # 💻 Prerequisites
 
-Before running the project, install:
+Install the following:
 
-### Node.js
+## Node.js
 
-Recommended:
-
-```text
-Node.js 20+
-```
+Node.js 20+ is recommended.
 
 Check:
 
 ```bash
 node -v
-```
-
-and:
-
-```bash
 npm -v
 ```
 
 ---
 
-### Docker Desktop
+## Docker Desktop
 
-Install Docker Desktop and verify:
+Check:
 
 ```bash
 docker --version
-```
-
-and:
-
-```bash
 docker compose version
 ```
 
@@ -590,7 +646,7 @@ cd HotelRateComparatorProject
 
 # 📦 Backend Setup
 
-Navigate to backend:
+Navigate to the backend:
 
 ```bash
 cd backend
@@ -608,25 +664,25 @@ Create:
 backend/.env
 ```
 
-Add:
+Use:
 
 ```env
 PORT=5000
 
-TEMPORAL_ADDRESS=localhost:7233
-TEMPORAL_NAMESPACE=default
-TEMPORAL_TASK_QUEUE=HOTEL_TASK_QUEUE
+DATABASE_URL=postgresql://hotel_user:hotel_password@localhost:5434/hotel_db
 
-DATABASE_URL=postgresql://hotel_user:hotel_password@localhost:5432/hotel_db
+TEMPORAL_ADDRESS=localhost:7233
+
+TEMPORAL_TASK_QUEUE=HOTEL_TASK_QUEUE
 ```
+
+> The application PostgreSQL container is exposed on host port **5434**, not 5432.
 
 ---
 
 # 🎨 Frontend Setup
 
-Open another terminal.
-
-Navigate to:
+Open another terminal:
 
 ```bash
 cd frontend
@@ -638,9 +694,15 @@ Install dependencies:
 npm install
 ```
 
+The Vite frontend currently runs on:
+
+```text
+http://localhost:5174
+```
+
 ---
 
-# 🐳 Start Docker Services
+# 🐳 Docker Infrastructure
 
 From the project root:
 
@@ -654,7 +716,7 @@ Check running containers:
 docker ps
 ```
 
-You should see services similar to:
+Expected containers:
 
 ```text
 hotel-postgres
@@ -665,72 +727,109 @@ hotel-temporal-ui
 
 ---
 
-# 🗄️ PostgreSQL Setup
+# 🐳 Docker Services
 
-The application PostgreSQL database runs on:
+| Service                | Host Port | Purpose                    |
+| ---------------------- | --------: | -------------------------- |
+| Application PostgreSQL |      5434 | Hotel application database |
+| Temporal PostgreSQL    |      5433 | Temporal persistence       |
+| Temporal Server        |      7233 | Workflow engine            |
+| Temporal UI            |      8080 | Workflow monitoring        |
 
-```text
-localhost:5432
-```
+---
 
-Database:
+# 🗄️ Database
 
-```text
-hotel_db
-```
-
-Username:
-
-```text
-hotel_user
-```
-
-Password:
+The application PostgreSQL database uses:
 
 ```text
-hotel_password
+Host: localhost
+Port: 5434
+Database: hotel_db
+Username: hotel_user
+Password: hotel_password
 ```
 
-Create the hotel search table:
+The Docker container itself still uses PostgreSQL's internal port:
+
+```text
+5432
+```
+
+The host mapping is:
+
+```text
+5434:5432
+```
+
+---
+
+## Hotel Search Table
+
+The application stores completed best-rate results in:
 
 ```sql
-CREATE TABLE hotel_searches (
+CREATE TABLE IF NOT EXISTS hotel_searches (
     id SERIAL PRIMARY KEY,
-    city VARCHAR(100) NOT NULL,
+    workflow_id VARCHAR(255) UNIQUE NOT NULL,
+    city VARCHAR(255) NOT NULL,
     check_in DATE NOT NULL,
     check_out DATE NOT NULL,
-    hotel_id VARCHAR(100),
-    hotel_name VARCHAR(255),
-    price DECIMAL(10, 2),
-    supplier VARCHAR(100),
+    hotel_id VARCHAR(255) NOT NULL,
+    hotel_name VARCHAR(255) NOT NULL,
+    price NUMERIC NOT NULL,
+    supplier VARCHAR(100) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
-Add workflow ID:
+The `workflow_id` is unique so that the same workflow result is not inserted multiple times.
+
+The backend uses:
 
 ```sql
-ALTER TABLE hotel_searches
-ADD COLUMN IF NOT EXISTS workflow_id VARCHAR(255);
+ON CONFLICT (workflow_id)
+DO NOTHING
 ```
 
-Create a unique index:
-
-```sql
-CREATE UNIQUE INDEX IF NOT EXISTS
-idx_hotel_searches_workflow_id
-ON hotel_searches(workflow_id);
-```
+when persisting a completed workflow.
 
 ---
 
 # ▶️ Running the Project
 
-You need **three terminals**.
+The project requires the following running components:
+
+1. Docker infrastructure
+2. Backend API
+3. Temporal Worker
+4. React frontend
 
 ---
 
-## Terminal 1 — Backend API
+## Step 1 — Start Docker
+
+From:
+
+```text
+HotelRateComparatorProject/
+```
+
+run:
+
+```bash
+docker compose up -d
+```
+
+Verify:
+
+```bash
+docker ps
+```
+
+---
+
+# Terminal 1 — Backend API
 
 ```bash
 cd backend
@@ -741,16 +840,21 @@ Expected:
 
 ```text
 Server running on port 5000
-PostgreSQL connected
 ```
 
-Test:
+The backend API is available at:
 
 ```text
 http://localhost:5000
 ```
 
-You should receive:
+Test:
+
+```text
+http://localhost:5000/
+```
+
+Expected:
 
 ```json
 {
@@ -764,6 +868,15 @@ Health check:
 http://localhost:5000/health
 ```
 
+Expected:
+
+```json
+{
+  "status": "OK",
+  "timestamp": "..."
+}
+```
+
 ---
 
 # Terminal 2 — Temporal Worker
@@ -775,15 +888,24 @@ cd backend
 npm run worker
 ```
 
-Expected:
+The worker connects to:
 
 ```text
-Temporal Worker started
+localhost:7233
+```
+
+and listens on:
+
+```text
+HOTEL_TASK_QUEUE
 ```
 
 Keep this terminal running.
 
-The worker is responsible for executing Temporal workflows and activities.
+The worker is responsible for executing:
+
+* Temporal Workflows
+* Temporal Activities
 
 ---
 
@@ -793,65 +915,48 @@ Open another terminal:
 
 ```bash
 cd frontend
-```
-
-Run:
-
-```bash
 npm run dev
 ```
 
-Vite should display something similar to:
+The frontend currently runs at:
 
 ```text
-Local: http://localhost:5173/
+http://localhost:5174
 ```
 
 Open:
 
 ```text
-http://localhost:5173
+http://localhost:5174
 ```
-
----
-
-# 🐳 Docker Services
-
-The project uses Docker Compose for infrastructure.
-
-| Service             | Port | Purpose              |
-| ------------------- | ---: | -------------------- |
-| PostgreSQL          | 5432 | Application database |
-| Temporal PostgreSQL | 5433 | Temporal persistence |
-| Temporal Server     | 7233 | Workflow engine      |
-| Temporal UI         | 8080 | Workflow monitoring  |
 
 ---
 
 # 🔍 Temporal UI
 
-Open:
+Temporal UI is available at:
 
 ```text
 http://localhost:8080
 ```
 
-The Temporal UI allows you to monitor:
+The UI can be used to monitor:
 
 * Workflow executions
-* Workflow status
 * Workflow IDs
+* Workflow status
 * Activity executions
-* Retries
+* Activity retries
 * Failures
 * Execution history
 * Cancellation
+* Workflow timing
 
 ---
 
 # 📡 API Documentation
 
-## Start Hotel Search
+## 1. Start Hotel Search
 
 ### Endpoint
 
@@ -864,8 +969,8 @@ POST /api/search-hotels
 ```json
 {
   "city": "Mumbai",
-  "checkIn": "2026-09-10",
-  "checkOut": "2026-09-12"
+  "checkIn": "2026-09-20",
+  "checkOut": "2026-09-22"
 }
 ```
 
@@ -875,13 +980,15 @@ POST /api/search-hotels
 {
   "workflowId": "hotel-search-123",
   "status": "RUNNING",
-  "message": "Hotel search started"
+  "message": "Hotel search started."
 }
 ```
 
+The endpoint returns immediately after the workflow is started.
+
 ---
 
-# 🔎 Get Search Status
+# 🔎 2. Get Search Status
 
 ### Endpoint
 
@@ -904,7 +1011,9 @@ GET /api/search-hotels/hotel-search-123
   "workflowId": "hotel-search-123",
   "status": "RUNNING",
   "hotel": null,
-  "message": "Hotel search is still running"
+  "message": "Hotel search is still running.",
+  "suppliers": [],
+  "workflowSteps": []
 }
 ```
 
@@ -922,13 +1031,20 @@ GET /api/search-hotels/hotel-search-123
     "price": 90,
     "supplier": "SupplierB"
   },
-  "message": "Hotel found successfully"
+  "message": "Best rate found: Royal Inn at ₹90 from SupplierB.",
+  "search": {
+    "city": "Mumbai",
+    "checkIn": "2026-09-20",
+    "checkOut": "2026-09-22"
+  },
+  "suppliers": [],
+  "workflowSteps": []
 }
 ```
 
 ---
 
-# 🛑 Cancel Search
+# 🛑 3. Cancel Search
 
 ### Endpoint
 
@@ -942,7 +1058,17 @@ Example:
 POST /api/cancel-search/hotel-search-123
 ```
 
-This requests cancellation of the Temporal workflow.
+Response:
+
+```json
+{
+  "workflowId": "hotel-search-123",
+  "status": "CANCELLED",
+  "message": "Hotel search cancellation requested."
+}
+```
+
+The cancellation request is sent to Temporal.
 
 ---
 
@@ -962,7 +1088,24 @@ GET /supplierA/hotels
 GET /supplierB/hotels
 ```
 
-Example response:
+Both APIs accept search parameters:
+
+```text
+city
+checkIn
+checkOut
+scenario
+```
+
+Example:
+
+```text
+/supplierA/hotels?city=Mumbai&checkIn=2026-09-20&checkOut=2026-09-22
+```
+
+---
+
+## Supplier A Example
 
 ```json
 [
@@ -983,18 +1126,41 @@ Example response:
 
 ---
 
+## Supplier B Example
+
+```json
+[
+  {
+    "hotelId": "B-101",
+    "name": "Grand Hotel",
+    "price": 110,
+    "supplier": "SupplierB"
+  },
+  {
+    "hotelId": "B-102",
+    "name": "Royal Inn",
+    "price": 90,
+    "supplier": "SupplierB"
+  }
+]
+```
+
+---
+
 # 🧪 Search Scenarios
 
-The mock supplier APIs support different scenarios for testing.
+The mock supplier system supports several scenarios.
 
-Pass the scenario in the search request:
+Pass the scenario in the search request.
+
+Example:
 
 ```json
 {
   "city": "Mumbai",
-  "checkIn": "2026-09-10",
-  "checkOut": "2026-09-12",
-  "scenario": "supplierAError"
+  "checkIn": "2026-09-20",
+  "checkOut": "2026-09-22",
+  "scenario": "supplierATimeout"
 }
 ```
 
@@ -1002,17 +1168,26 @@ Pass the scenario in the search request:
 
 ## Normal Search
 
-```text
-scenario:
+No scenario:
+
+```json
+{
+  "city": "Mumbai",
+  "checkIn": "2026-09-20",
+  "checkOut": "2026-09-22"
+}
 ```
 
-Both suppliers return results.
+Both suppliers return normally.
 
 Expected:
 
 ```text
-Cheapest hotel = Royal Inn
-Price = $90
+Supplier A → SUCCESS
+Supplier B → SUCCESS
+
+Cheapest → Royal Inn
+Price → ₹90
 ```
 
 ---
@@ -1025,13 +1200,15 @@ Price = $90
 }
 ```
 
-Expected behavior:
+Expected:
 
 ```text
-Supplier A → ERROR
+Supplier A → FAILED
 Supplier B → SUCCESS
-                   ↓
-          Return Supplier B
+
+        ↓
+
+Supplier B result considered
 ```
 
 ---
@@ -1048,9 +1225,11 @@ Expected:
 
 ```text
 Supplier A → SUCCESS
-Supplier B → ERROR
-                   ↓
-          Return Supplier A
+Supplier B → FAILED
+
+        ↓
+
+Supplier A result considered
 ```
 
 ---
@@ -1063,15 +1242,17 @@ Supplier B → ERROR
 }
 ```
 
-Supplier A intentionally takes more than 5 seconds.
+Supplier A intentionally takes longer than the five-second business timeout.
 
 Expected:
 
 ```text
 Supplier A → TIMEOUT
 Supplier B → SUCCESS
-                   ↓
-          Return Supplier B
+
+        ↓
+
+Supplier B result considered
 ```
 
 ---
@@ -1089,36 +1270,15 @@ Expected:
 ```text
 Supplier A → SUCCESS
 Supplier B → TIMEOUT
-                   ↓
-          Return Supplier A
+
+        ↓
+
+Supplier A result considered
 ```
 
 ---
 
-## Both Suppliers Fail
-
-Use:
-
-```text
-supplierAError
-```
-
-and configure the second supplier accordingly if testing a both-failure case.
-
-Expected:
-
-```text
-Supplier A → ERROR
-Supplier B → ERROR
-                   ↓
-        Both hotel suppliers failed
-```
-
----
-
-## Empty Supplier Response
-
-Supplier A:
+## Supplier A Empty
 
 ```json
 {
@@ -1126,7 +1286,18 @@ Supplier A:
 }
 ```
 
-Supplier B:
+Expected:
+
+```text
+Supplier A → EMPTY
+Supplier B → SUCCESS
+```
+
+Supplier B results are still considered.
+
+---
+
+## Supplier B Empty
 
 ```json
 {
@@ -1137,8 +1308,11 @@ Supplier B:
 Expected:
 
 ```text
-No hotels found
+Supplier A → SUCCESS
+Supplier B → EMPTY
 ```
+
+Supplier A results are still considered.
 
 ---
 
@@ -1150,7 +1324,7 @@ The main workflow is:
 hotelSearchWorkflow
 ```
 
-Location:
+Located at:
 
 ```text
 backend/src/workflows/hotel.workflow.ts
@@ -1159,29 +1333,68 @@ backend/src/workflows/hotel.workflow.ts
 The workflow is responsible for:
 
 1. Receiving search criteria
-2. Calling Supplier A
-3. Calling Supplier B
-4. Executing suppliers concurrently
-5. Applying timeout logic
-6. Handling failures
-7. Collecting successful results
-8. Comparing prices
-9. Returning the cheapest hotel
+2. Initializing workflow status
+3. Calling Supplier A
+4. Calling Supplier B
+5. Running supplier activities concurrently
+6. Applying five-second supplier timeouts
+7. Handling supplier failures
+8. Handling empty results
+9. Collecting successful results
+10. Comparing hotel prices
+11. Selecting the cheapest hotel
+12. Updating workflow visualization status
+13. Returning the final search result
 
 ---
 
-# 🔁 Activity Retry Strategy
+# 📊 Workflow Visualization
 
-Temporal activities use retry configuration.
+The workflow maintains steps that can be queried through Temporal.
+
+The frontend can display states such as:
 
 ```text
-Maximum attempts: 3
-Initial interval: 100ms
-Maximum interval: 500ms
-Backoff coefficient: 2
+PENDING
+RUNNING
+COMPLETED
+FAILED
+TIMEOUT
 ```
 
-The retry mechanism protects against temporary failures.
+Conceptually:
+
+```text
+Search Request
+      │
+      ▼
+Temporal Workflow
+      │
+ ┌────┴────┐
+ ▼         ▼
+Supplier A Supplier B
+      │     │
+      └──┬──┘
+         ▼
+   Compare Rates
+         │
+         ▼
+     Best Rate
+```
+
+---
+
+# 🔁 Retry Strategy
+
+Supplier activities use Temporal Activity retry configuration.
+
+The current workflow configures:
+
+```text
+Maximum Attempts: 3
+```
+
+The retry mechanism allows transient failures to be retried automatically.
 
 Conceptually:
 
@@ -1203,152 +1416,91 @@ Attempt #1
           └── Failure
                  │
                  ▼
-              Retry #3
+             Retry #3
+                 │
+                 ├── Success
+                 │
+                 └── Final Failure
 ```
+
+The workflow also supports marking permanent supplier errors as non-retryable through Temporal error types.
 
 ---
 
-# ⏱️ Timeout Architecture
+# ⏱️ Timeout Strategy
 
-There are two different timeout concepts.
-
-### Business Timeout
+The application uses a **five-second business timeout** for each supplier.
 
 ```text
-5 seconds
+SUPPLIER_TIMEOUT_MS = 5000
 ```
 
-This is the maximum time allowed for a supplier response.
+The timeout is implemented inside the Temporal workflow using a cancellation scope.
 
-### Activity Timeout
-
-Configured at the Temporal activity level:
+Conceptually:
 
 ```text
-10 seconds
+Supplier Activity
+       │
+       ├───────────────┐
+       │               │
+       ▼               ▼
+Activity Execution   5 sec Timer
+       │               │
+       │               ▼
+       │            Timeout
+       │               │
+       │          Cancel Scope
+       │               │
+       └───────┬───────┘
+               ▼
+          Supplier Result
 ```
 
-The 5-second workflow timeout is intentionally shorter and represents the application's business requirement.
+This allows Supplier A and Supplier B to have independent timeout handling.
 
 ---
 
-# 🧪 Testing
+# 🛑 Cancellation Architecture
 
-Backend tests are located at:
-
-```text
-backend/src/tests/
-```
-
-Run:
-
-```bash
-cd backend
-npm test
-```
-
-The project uses:
-
-* Jest
-* ts-jest
-* Temporal Testing Environment
-
----
-
-# 🔬 Test Coverage
-
-The test suite covers scenarios such as:
-
-### 1. Supplier A is cheaper
+The backend obtains a Temporal workflow handle using the workflow ID.
 
 ```text
-Supplier A = $80
-Supplier B = $90
-
-Expected → Supplier A
+POST /api/cancel-search/:workflowId
+                │
+                ▼
+        Temporal Client
+                │
+                ▼
+        Workflow Handle
+                │
+                ▼
+          handle.cancel()
+                │
+                ▼
+       Temporal Cancellation
 ```
 
-### 2. Supplier B is cheaper
-
-```text
-Supplier A = $100
-Supplier B = $90
-
-Expected → Supplier B
-```
-
-### 3. Equal prices
-
-The comparison logic provides deterministic supplier selection when prices are equal.
-
-### 4. Empty results
-
-```text
-Supplier A = []
-Supplier B = []
-```
-
-Expected:
-
-```text
-No hotels found
-```
-
-### 5. Supplier A failure
-
-Expected:
-
-```text
-Supplier B result is returned
-```
-
-### 6. Supplier B failure
-
-Expected:
-
-```text
-Supplier A result is returned
-```
-
-### 7. Both suppliers fail
-
-Expected:
-
-```text
-Both hotel suppliers failed
-```
-
-### 8. Supplier timeout
-
-Expected:
-
-```text
-Timed-out supplier is treated as failed
-```
-
-### 9. Workflow cancellation
-
-Expected:
-
-```text
-Workflow becomes canceled
-```
+The workflow's supplier activity execution is also cancellation-aware.
 
 ---
 
 # 🖥️ Frontend
 
-The React frontend provides:
+The React application provides:
 
 * City input
 * Check-in date
 * Check-out date
 * Search button
-* Workflow status
 * Loading state
-* Cheapest hotel result
-* Supplier information
+* Workflow status
+* Supplier status
+* Supplier hotel results
+* Cheapest hotel
 * Price display
+* Error handling
+* Workflow visualization
 * Cancel search functionality
 
 The frontend communicates with the backend using Axios.
@@ -1362,13 +1514,13 @@ User
  │
  │ Enter city/date
  ▼
-React
+React Frontend
  │
  │ POST /api/search-hotels
  ▼
-Express
+Express API
  │
- │ Start Workflow
+ │ Start Temporal Workflow
  ▼
 Temporal
  │
@@ -1378,17 +1530,150 @@ Supplier A    Supplier B
  │               │
  └───────┬───────┘
          ▼
-     Compare Rates
+    Compare Rates
          │
          ▼
-     Save Result
+    Best Hotel
          │
          ▼
-React polls status
+    PostgreSQL
          │
          ▼
-Display cheapest hotel
+React polls workflow
+         │
+         ▼
+Display Result
 ```
+
+---
+
+# 🧪 Testing
+
+The backend uses:
+
+* Jest
+* ts-jest
+* Temporal Testing Environment
+
+Run:
+
+```bash
+cd backend
+npm test
+```
+
+The test suite covers both business logic and Temporal workflow behavior.
+
+---
+
+# 🔬 Test Coverage
+
+The workflow tests cover:
+
+### 1. Supplier A is cheaper
+
+```text
+Supplier A → lower price
+Supplier B → higher price
+
+Expected → Supplier A
+```
+
+### 2. Supplier B is cheaper
+
+```text
+Supplier A → higher price
+Supplier B → lower price
+
+Expected → Supplier B
+```
+
+### 3. Equal prices
+
+The comparison logic provides deterministic supplier selection.
+
+When prices are equal:
+
+```text
+Supplier A
+```
+
+is preferred.
+
+### 4. One supplier fails
+
+```text
+Supplier A → FAILED
+Supplier B → SUCCESS
+
+Expected → Supplier B
+```
+
+### 5. Both suppliers fail
+
+```text
+Supplier A → FAILED
+Supplier B → FAILED
+
+Expected → No successful hotel
+```
+
+### 6. One supplier returns empty results
+
+```text
+Supplier A → EMPTY
+Supplier B → SUCCESS
+
+Expected → Supplier B
+```
+
+### 7. Both suppliers return empty results
+
+```text
+Supplier A → EMPTY
+Supplier B → EMPTY
+
+Expected → No hotels found
+```
+
+### 8. Supplier timeout
+
+```text
+Supplier A → TIMEOUT
+Supplier B → SUCCESS
+
+Expected → Supplier B
+```
+
+### 9. Activity retry
+
+The workflow verifies that a transient supplier failure can succeed after retry attempts.
+
+```text
+Attempt 1 → Failure
+Attempt 2 → Failure
+Attempt 3 → Success
+```
+
+### 10. Workflow cancellation
+
+The workflow can be cancelled while supplier activities are running.
+
+---
+
+# ✅ Current Test Status
+
+The current backend test suite contains **14 tests**, covering comparison logic and Temporal workflow scenarios.
+
+Current status:
+
+```text
+14 Tests
+14 Passed
+0 Failed
+```
+
+The timeout and cancellation behavior has been tested using Temporal's test workflow environment.
 
 ---
 
@@ -1406,7 +1691,7 @@ docker compose up -d
 docker compose down
 ```
 
-## Stop and remove volumes
+## Stop Docker and remove volumes
 
 ⚠️ This deletes PostgreSQL data stored in Docker volumes.
 
@@ -1426,7 +1711,7 @@ docker ps
 docker logs hotel-temporal
 ```
 
-## View PostgreSQL logs
+## View application PostgreSQL logs
 
 ```bash
 docker logs hotel-postgres
@@ -1438,11 +1723,100 @@ docker logs hotel-postgres
 docker logs hotel-temporal-postgres
 ```
 
+## Backend development
+
+```bash
+cd backend
+npm run dev
+```
+
+## Temporal Worker
+
+```bash
+cd backend
+npm run worker
+```
+
+## Build backend
+
+```bash
+cd backend
+npm run build
+```
+
+## Run tests
+
+```bash
+cd backend
+npm test
+```
+
 ---
 
 # 🩺 Troubleshooting
 
-## Backend cannot connect to PostgreSQL
+## Backend returns 404 for `/api/search-hotels`
+
+Make sure `server.ts` mounts the search routes using:
+
+```typescript
+app.use("/api", searchRoutes);
+```
+
+The route file contains:
+
+```typescript
+router.post("/search-hotels", ...)
+```
+
+Therefore the final endpoint becomes:
+
+```text
+POST /api/search-hotels
+```
+
+Do not mount the router without `/api`.
+
+---
+
+## Frontend cannot connect to backend
+
+Verify:
+
+```text
+http://localhost:5000/health
+```
+
+Expected:
+
+```json
+{
+  "status": "OK"
+}
+```
+
+Also verify the frontend API URL:
+
+```text
+http://localhost:5000
+```
+
+The frontend currently runs on:
+
+```text
+http://localhost:5174
+```
+
+and the backend CORS configuration should allow:
+
+```text
+http://localhost:5173
+http://localhost:5174
+```
+
+---
+
+## PostgreSQL connection error
 
 Check:
 
@@ -1458,10 +1832,17 @@ hotel-postgres
 
 is running.
 
-Verify `.env`:
+The correct application database connection is:
 
 ```env
-DATABASE_URL=postgresql://hotel_user:hotel_password@localhost:5432/hotel_db
+DATABASE_URL=postgresql://hotel_user:hotel_password@localhost:5434/hotel_db
+```
+
+Remember:
+
+```text
+Host Port: 5434
+Container Port: 5432
 ```
 
 ---
@@ -1490,61 +1871,61 @@ TEMPORAL_ADDRESS=localhost:7233
 
 ---
 
-## Worker is not starting
+## Worker is not processing workflows
 
-Run:
+Start the worker:
 
 ```bash
 cd backend
 npm run worker
 ```
 
-Expected:
+Verify the task queue:
 
-```text
-Temporal Worker started
+```env
+TEMPORAL_TASK_QUEUE=HOTEL_TASK_QUEUE
 ```
 
-Also verify that the Temporal server is running.
+The workflow and worker must use the same task queue.
 
 ---
 
-## Frontend cannot call backend
+## Temporal UI unavailable
 
-Verify the backend is running:
+Check:
 
-```text
-http://localhost:5000/health
+```bash
+docker logs hotel-temporal-ui
 ```
 
-Expected:
-
-```json
-{
-  "status": "OK"
-}
-```
-
-Also verify the frontend API URL points to:
+Open:
 
 ```text
-http://localhost:5000
+http://localhost:8080
 ```
 
 ---
 
-## Port 5432 already in use
+## Port 5434 already in use
 
-Check which application is using port 5432.
+Change the host port in:
 
-Alternatively, change the Docker port mapping:
+```text
+docker-compose.yml
+```
+
+For example:
 
 ```yaml
 ports:
-  - "5434:5432"
+  - "5435:5432"
 ```
 
-Then update the database connection accordingly.
+Then update:
+
+```env
+DATABASE_URL=postgresql://hotel_user:hotel_password@localhost:5435/hotel_db
+```
 
 ---
 
@@ -1556,90 +1937,78 @@ Change:
 PORT=5000
 ```
 
-to another port such as:
+to:
 
 ```env
 PORT=5001
 ```
 
-If you change the backend port, also update the frontend API URL.
-
----
-
-## Temporal UI is unavailable
-
-Check:
-
-```bash
-docker logs hotel-temporal-ui
-```
-
-The UI should be available at:
-
-```text
-http://localhost:8080
-```
+Then update the frontend API URL accordingly.
 
 ---
 
 # 📊 Complete Request Lifecycle
 
 ```text
-                    USER
-                      │
-                      ▼
-              ┌───────────────┐
-              │ React Frontend│
-              └───────┬───────┘
-                      │
-                POST Search
-                      │
-                      ▼
-              ┌───────────────┐
-              │ Express API   │
-              └───────┬───────┘
-                      │
-               Start Workflow
-                      │
-                      ▼
-              ┌───────────────┐
-              │    Temporal   │
-              │    Workflow   │
-              └───────┬───────┘
-                      │
-              Parallel Activities
-                 ┌────┴────┐
-                 ▼         ▼
-             Supplier A Supplier B
-                 │         │
-                 └────┬────┘
-                      │
-                      ▼
-               Compare Results
-                      │
-                      ▼
-                Cheapest Hotel
-                      │
-                      ▼
-                 PostgreSQL
-                      │
-                      ▼
-               Workflow Complete
-                      │
-                      ▼
-              React Gets Result
-                      │
-                      ▼
-                 Display UI
+                         USER
+                           │
+                           ▼
+                 ┌──────────────────┐
+                 │  React Frontend  │
+                 └────────┬─────────┘
+                          │
+                    POST Search
+                          │
+                          ▼
+                 ┌──────────────────┐
+                 │   Express API    │
+                 └────────┬─────────┘
+                          │
+                    Start Workflow
+                          │
+                          ▼
+                 ┌──────────────────┐
+                 │ Temporal Server  │
+                 └────────┬─────────┘
+                          │
+                          ▼
+                 ┌──────────────────┐
+                 │ Temporal Worker  │
+                 └────────┬─────────┘
+                          │
+                   Parallel Activities
+                     ┌────┴────┐
+                     ▼         ▼
+                 Supplier A Supplier B
+                     │         │
+                     └────┬────┘
+                          │
+                          ▼
+                   Compare Results
+                          │
+                          ▼
+                    Cheapest Hotel
+                          │
+                          ▼
+                     PostgreSQL
+                          │
+                          ▼
+                  Workflow Complete
+                          │
+                          ▼
+                  React Polls Status
+                          │
+                          ▼
+                    Display Result
 ```
 
 ---
 
 # 🔐 Production Considerations
 
-This project uses mock suppliers for demonstration.
+This project currently uses mock supplier APIs for demonstration.
 
-For production, the following improvements would be recommended:
+A production implementation should additionally consider:
 
 * Authentication and authorization
 * HTTPS
@@ -1659,14 +2028,13 @@ For production, the following improvements would be recommended:
 * Kubernetes deployment
 * CI/CD pipeline
 * Automated database migrations
+* Centralized error handling
 
 ---
 
 # 🚀 Future Improvements
 
-Potential enhancements include:
-
-### 🔹 More Suppliers
+## 🔹 More Suppliers
 
 Add:
 
@@ -1676,80 +2044,109 @@ Supplier D
 Supplier E
 ```
 
-and compare all results.
+The workflow could dynamically execute all supplier activities in parallel.
 
-### 🔹 Redis Caching
+---
 
-Cache frequently requested searches.
+## 🔹 Redis Caching
+
+Frequently requested searches could be cached:
 
 ```text
 React
- ↓
+  ↓
 API
- ↓
+  ↓
 Redis
- ↓
+  ↓
 Temporal
- ↓
+  ↓
 Suppliers
 ```
 
-### 🔹 Authentication
+---
 
-Add JWT authentication for users.
+## 🔹 Authentication
 
-### 🔹 Search History
+Add JWT-based authentication and user-specific search history.
 
-Allow users to view previous searches.
+---
 
-### 🔹 Advanced Filtering
+## 🔹 Search History
 
-Add:
+Allow users to view:
+
+```text
+Previous Searches
+       ↓
+Search Details
+       ↓
+Best Hotel
+       ↓
+Price
+       ↓
+Supplier
+```
+
+---
+
+## 🔹 Advanced Filtering
+
+Potential filters:
 
 * Maximum price
 * Hotel rating
 * Amenities
 * Room type
 * Cancellation policy
+* Number of guests
 
-### 🔹 Real Supplier APIs
+---
 
-Replace mock APIs with real hotel supplier integrations.
+## 🔹 Real Supplier APIs
 
-### 🔹 Observability
+Replace the mock supplier routes with real hotel supplier integrations.
+
+---
+
+## 🔹 Observability
 
 Add:
 
 * OpenTelemetry
 * Prometheus
 * Grafana
-* Structured logs
+* Structured logging
+* Distributed tracing
 
 ---
 
 # 🎯 Learning Outcomes
 
-This project demonstrates practical understanding of:
+This project demonstrates practical knowledge of several important engineering concepts.
 
-### Backend Development
+## Backend Development
 
 * REST APIs
 * Express.js
 * TypeScript
 * Axios
-* Error handling
 * Async programming
+* Error handling
+* API polling
+* CORS
 
-### Distributed Systems
+## Distributed Systems
 
 * Parallel execution
+* Failure isolation
 * Timeouts
 * Retries
-* Failure isolation
 * Cancellation
 * Workflow orchestration
+* Asynchronous processing
 
-### Temporal
+## Temporal
 
 * Workflows
 * Activities
@@ -1757,18 +2154,21 @@ This project demonstrates practical understanding of:
 * Task queues
 * Workflow execution
 * Activity retries
-* Cancellation
-* Testing
+* Activity cancellation
+* Workflow cancellation
+* Workflow queries
+* Temporal testing
 
-### Database
+## Database
 
 * PostgreSQL
 * Connection pooling
-* SQL tables
+* SQL
+* Unique constraints
 * Indexes
 * Persistent search results
 
-### Frontend
+## Frontend
 
 * React
 * TypeScript
@@ -1776,66 +2176,81 @@ This project demonstrates practical understanding of:
 * API polling
 * Loading states
 * Error handling
+* Workflow visualization
 
-### DevOps
+## DevOps
 
 * Docker
 * Docker Compose
+* PostgreSQL containers
+* Temporal infrastructure
 * Service dependencies
 * Health checks
 
-### Testing
+## Testing
 
 * Jest
 * Unit testing
 * Workflow testing
 * Failure scenarios
 * Timeout testing
+* Retry testing
 * Cancellation testing
 
 ---
 
 # 📌 Quick Start
 
-For someone cloning the repository, the shortest setup is:
+For someone cloning the repository:
 
-### 1. Clone
+## 1. Clone
 
 ```bash
 git clone <YOUR_GITHUB_REPOSITORY_URL>
+
 cd HotelRateComparatorProject
 ```
 
-### 2. Start infrastructure
+## 2. Start infrastructure
 
 ```bash
 docker compose up -d
 ```
 
-### 3. Install backend
+## 3. Install backend
 
 ```bash
 cd backend
 npm install
 ```
 
-### 4. Configure `.env`
+## 4. Configure `.env`
+
+Create:
+
+```text
+backend/.env
+```
+
+Add:
 
 ```env
 PORT=5000
+
+DATABASE_URL=postgresql://hotel_user:hotel_password@localhost:5434/hotel_db
+
 TEMPORAL_ADDRESS=localhost:7233
-TEMPORAL_NAMESPACE=default
+
 TEMPORAL_TASK_QUEUE=HOTEL_TASK_QUEUE
-DATABASE_URL=postgresql://hotel_user:hotel_password@localhost:5432/hotel_db
 ```
 
-### 5. Start backend
+## 5. Start backend
 
 ```bash
 npm run dev
 ```
 
-### 6. Start Temporal Worker
+## 6. Start Temporal Worker
 
 Open another terminal:
 
@@ -1844,7 +2259,7 @@ cd backend
 npm run worker
 ```
 
-### 7. Install frontend
+## 7. Install frontend
 
 Open another terminal:
 
@@ -1853,19 +2268,19 @@ cd frontend
 npm install
 ```
 
-### 8. Start frontend
+## 8. Start frontend
 
 ```bash
 npm run dev
 ```
 
-### 9. Open application
+## 9. Open application
 
 ```text
-http://localhost:5173
+http://localhost:5174
 ```
 
-### 10. Monitor Temporal
+## 10. Monitor Temporal
 
 ```text
 http://localhost:8080
@@ -1875,21 +2290,21 @@ http://localhost:8080
 
 # 📝 Environment Variables
 
-Backend `.env`:
+The backend uses:
 
 ```env
 PORT=5000
 
-TEMPORAL_ADDRESS=localhost:7233
-TEMPORAL_NAMESPACE=default
-TEMPORAL_TASK_QUEUE=HOTEL_TASK_QUEUE
+DATABASE_URL=postgresql://hotel_user:hotel_password@localhost:5434/hotel_db
 
-DATABASE_URL=postgresql://hotel_user:hotel_password@localhost:5432/hotel_db
+TEMPORAL_ADDRESS=localhost:7233
+
+TEMPORAL_TASK_QUEUE=HOTEL_TASK_QUEUE
 ```
 
-> Never commit `.env` files containing production credentials to GitHub.
+Never commit production credentials to GitHub.
 
-Add to `.gitignore`:
+Recommended `.gitignore`:
 
 ```gitignore
 .env
@@ -1912,21 +2327,36 @@ You may modify and extend the project for your own learning and development.
 
 **Nikhil Dadhich**
 
-Full Stack Developer | React | Node.js | TypeScript | PostgreSQL | Temporal
+Full Stack Developer
+React | Node.js | TypeScript | PostgreSQL | Temporal
 
 ---
 
-## ⭐ If You Like This Project
+# ⭐ If You Like This Project
 
-If this project helped you understand **Temporal Workflows, distributed systems, asynchronous APIs, and fault-tolerant backend architecture**, consider giving the repository a ⭐ on GitHub.
+If this project helped you understand **Temporal Workflows, distributed systems, asynchronous APIs, fault-tolerant backend architecture, and workflow orchestration**, consider giving the repository a ⭐ on GitHub.
 
 ---
 
-## 💡 Project Highlights for Recruiters
+# 💡 Project Highlights for Recruiters
 
-> **Hotel Rate Comparator** is a full-stack distributed application that uses Temporal to orchestrate parallel hotel supplier searches. It demonstrates fault-tolerant workflow execution with supplier-level timeouts, retries, failure isolation, cancellation, PostgreSQL persistence, and a React-based asynchronous polling interface.
+> **Hotel Rate Comparator** is a full-stack distributed application that uses Temporal to orchestrate parallel hotel supplier searches.
 
-**Core engineering concepts demonstrated:**
+The project demonstrates:
+
+* Parallel supplier execution
+* Supplier-level timeout handling
+* Activity retries
+* Failure isolation
+* Workflow cancellation
+* PostgreSQL persistence
+* Asynchronous API design
+* React polling
+* Live workflow status visualization
+* Unit and workflow testing
+* Docker-based infrastructure
+
+### Core Architecture
 
 ```text
 React
@@ -1939,11 +2369,50 @@ Parallel Activities
   ├── Supplier A
   └── Supplier B
   ↓
-Failure / Timeout / Retry Handling
+Timeout / Retry / Failure Handling
   ↓
 Rate Comparison
+  ↓
+Best Hotel
   ↓
 PostgreSQL
   ↓
 React Result
 ```
+
+### Key Engineering Idea
+
+The important architectural decision is that the API does not synchronously wait for every supplier.
+
+Instead:
+
+```text
+Client
+  │
+  │ Start Search
+  ▼
+Express API
+  │
+  │ Start Workflow
+  ▼
+Temporal
+  │
+  ├──────────────┐
+  ▼              ▼
+Supplier A    Supplier B
+  │              │
+  └──────┬───────┘
+         ▼
+    Compare Rates
+         │
+         ▼
+     Best Hotel
+         │
+         ▼
+    Persist Result
+         │
+         ▼
+    Client Polls
+```
+
+This architecture makes the application more resilient to slow, failed, or temporarily unavailable suppliers.
