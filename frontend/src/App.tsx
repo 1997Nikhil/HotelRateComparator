@@ -8,10 +8,10 @@ import {
   getHotelSearchStatus,
   cancelHotelSearch,
   type Hotel,
+  type SupplierStatus,
 } from "./services/api";
 
 import "./App.css";
-
 
 function App() {
 
@@ -27,6 +27,9 @@ function App() {
   const [hotel, setHotel] =
     useState<Hotel | null>(null);
 
+  const [suppliers, setSuppliers] =
+    useState<SupplierStatus[]>([]);
+
   const [workflowId, setWorkflowId] =
     useState("");
 
@@ -39,7 +42,6 @@ function App() {
   const [message, setMessage] =
     useState("");
 
-
   /**
    * ========================================
    * START SEARCH
@@ -51,15 +53,15 @@ function App() {
 
     event.preventDefault();
 
-
     setLoading(true);
 
     setError("");
 
     setHotel(null);
 
-    setMessage("");
+    setSuppliers([]);
 
+    setMessage("");
 
     try {
 
@@ -74,16 +76,9 @@ function App() {
 
         });
 
-
-      /*
-       * Save Workflow ID.
-       *
-       * This starts frontend polling.
-       */
       setWorkflowId(
         result.workflowId
       );
-
 
       setMessage(
         "Searching hotel suppliers..."
@@ -93,16 +88,13 @@ function App() {
 
       console.error(error);
 
-
       setError(
         "Failed to start hotel search. Please try again."
       );
 
-
       setLoading(false);
     }
   };
-
 
   /**
    * ========================================
@@ -115,9 +107,7 @@ function App() {
       return;
     }
 
-
     let stopped = false;
-
 
     const pollWorkflow =
       async () => {
@@ -129,13 +119,11 @@ function App() {
               workflowId
             );
 
-
           if (stopped) {
             return;
           }
 
-
-          /*
+          /**
            * Workflow still running
            */
           if (
@@ -146,14 +134,13 @@ function App() {
             setLoading(true);
 
             setMessage(
-              "Searching hotel suppliers..."
+              "Searching Supplier A and Supplier B..."
             );
 
             return;
           }
 
-
-          /*
+          /**
            * Workflow completed
            */
           if (
@@ -163,18 +150,25 @@ function App() {
 
             setLoading(false);
 
-
+            /**
+             * Cheapest hotel
+             */
             setHotel(
               result.hotel
             );
 
+            /**
+             * ALL supplier results
+             */
+            setSuppliers(
+              result.suppliers || []
+            );
 
             setMessage(
               result.message
             );
 
-
-            /*
+            /**
              * Stop polling
              */
             setWorkflowId("");
@@ -182,31 +176,30 @@ function App() {
             return;
           }
 
-
-          /*
+          /**
            * Workflow cancelled
            */
           if (
             result.status ===
-            "CANCELED"
+            "CANCELLED"
           ) {
 
             setLoading(false);
 
             setHotel(null);
 
+            setSuppliers([]);
+
             setMessage(
               "Hotel search was cancelled."
             );
-
 
             setWorkflowId("");
 
             return;
           }
 
-
-          /*
+          /**
            * Workflow failed
            */
           if (
@@ -221,7 +214,6 @@ function App() {
                 "Hotel search failed."
             );
 
-
             setWorkflowId("");
 
             return;
@@ -230,7 +222,6 @@ function App() {
         } catch (error) {
 
           console.error(error);
-
 
           if (!stopped) {
 
@@ -245,15 +236,13 @@ function App() {
         }
       };
 
-
-    /*
-     * Check immediately.
+    /**
+     * Check immediately
      */
     pollWorkflow();
 
-
-    /*
-     * Then check every second.
+    /**
+     * Then every second
      */
     const interval =
       setInterval(
@@ -261,19 +250,18 @@ function App() {
         1000
       );
 
-
-    /*
-     * Cleanup.
+    /**
+     * Cleanup
      */
     return () => {
 
       stopped = true;
 
       clearInterval(interval);
+
     };
 
   }, [workflowId]);
-
 
   /**
    * ========================================
@@ -286,13 +274,11 @@ function App() {
       return;
     }
 
-
     try {
 
       setMessage(
         "Cancelling search..."
       );
-
 
       await cancelHotelSearch(
         workflowId
@@ -302,14 +288,17 @@ function App() {
 
       console.error(error);
 
-
       setError(
         "Unable to cancel search."
       );
     }
   };
 
-
+  /**
+   * ========================================
+   * RENDER
+   * ========================================
+   */
   return (
 
     <div className="container">
@@ -320,12 +309,10 @@ function App() {
           Hotel Rate Comparator
         </h1>
 
-
         <p className="subtitle">
           Find the best hotel price
           from multiple suppliers
         </p>
-
 
         {/* ==========================
             SEARCH FORM
@@ -355,7 +342,6 @@ function App() {
 
           </div>
 
-
           {/* CHECK-IN */}
 
           <div className="form-group">
@@ -374,7 +360,6 @@ function App() {
             />
 
           </div>
-
 
           {/* CHECK-OUT */}
 
@@ -395,7 +380,6 @@ function App() {
 
           </div>
 
-
           {/* SEARCH BUTTON */}
 
           <button
@@ -410,7 +394,6 @@ function App() {
           </button>
 
         </form>
-
 
         {/* ==========================
             CANCEL BUTTON
@@ -431,7 +414,6 @@ function App() {
 
           )}
 
-
         {/* ==========================
             MESSAGE
         =========================== */}
@@ -443,7 +425,6 @@ function App() {
           </div>
 
         )}
-
 
         {/* ==========================
             ERROR
@@ -457,9 +438,147 @@ function App() {
 
         )}
 
+        {/* ==========================
+            SUPPLIER RESULTS
+        =========================== */}
+
+        {suppliers.length > 0 && (
+
+          <div className="supplier-results">
+
+            <h2>
+              Supplier Results
+            </h2>
+
+            <div className="supplier-grid">
+
+              {suppliers.map(
+                (supplier) => (
+
+                  <div
+                    key={
+                      supplier.supplier
+                    }
+                    className={`supplier-card ${supplier.status.toLowerCase()}`}
+                  >
+
+                    {/* SUPPLIER HEADER */}
+
+                    <div className="supplier-header">
+
+                      <h3>
+                        {supplier.supplier}
+                      </h3>
+
+                      <span
+                        className="supplier-status"
+                      >
+
+                        {supplier.status ===
+                          "SUCCESS" &&
+                          "✅ SUCCESS"}
+
+                        {supplier.status ===
+                          "FAILED" &&
+                          "❌ FAILED"}
+
+                        {supplier.status ===
+                          "TIMEOUT" &&
+                          "⏱ TIMEOUT"}
+
+                        {supplier.status ===
+                          "EMPTY" &&
+                          "⚠️ EMPTY"}
+
+                      </span>
+
+                    </div>
+
+                    {/* SUCCESSFUL HOTELS */}
+
+                    {supplier.status ===
+                      "SUCCESS" && (
+
+                      <div>
+
+                        {supplier.hotels.map(
+                          (hotel) => (
+
+                            <div
+                              key={
+                                hotel.hotelId
+                              }
+                              className="supplier-hotel"
+                            >
+
+                              <div>
+
+                                <strong>
+                                  {hotel.name}
+                                </strong>
+
+                                <small>
+                                  {hotel.hotelId}
+                                </small>
+
+                              </div>
+
+                              <strong>
+                                ₹{hotel.price}
+                              </strong>
+
+                            </div>
+
+                          )
+                        )}
+
+                      </div>
+
+                    )}
+
+                    {/* FAILED / TIMEOUT */}
+
+                    {(supplier.status ===
+                      "FAILED" ||
+                      supplier.status ===
+                      "TIMEOUT") && (
+
+                      <div className="supplier-error">
+
+                        {supplier.error ||
+                          "Supplier request failed"}
+
+                      </div>
+
+                    )}
+
+                    {/* EMPTY */}
+
+                    {supplier.status ===
+                      "EMPTY" && (
+
+                      <div className="supplier-empty">
+
+                        No hotels returned
+                        by this supplier.
+
+                      </div>
+
+                    )}
+
+                  </div>
+
+                )
+              )}
+
+            </div>
+
+          </div>
+
+        )}
 
         {/* ==========================
-            HOTEL RESULT
+            BEST HOTEL
         =========================== */}
 
         {hotel && (
@@ -467,9 +586,8 @@ function App() {
           <div className="hotel-result">
 
             <h2>
-              Best Available Rate
+              🏆 Best Available Rate
             </h2>
-
 
             <div className="hotel-row">
 
@@ -483,7 +601,6 @@ function App() {
 
             </div>
 
-
             <div className="hotel-row">
 
               <span>
@@ -495,7 +612,6 @@ function App() {
               </strong>
 
             </div>
-
 
             <div className="hotel-row">
 
@@ -516,8 +632,8 @@ function App() {
       </div>
 
     </div>
+
   );
 }
-
 
 export default App;

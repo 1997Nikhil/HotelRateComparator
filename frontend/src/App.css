@@ -195,3 +195,115 @@ button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+
+.supplier-results {
+  margin-top: 30px;
+}
+
+.supplier-results h2 {
+  margin-bottom: 15px;
+}
+
+.supplier-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 15px;
+}
+
+.supplier-card {
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  padding: 18px;
+  background: #fff;
+}
+
+.supplier-card.success {
+  border-left: 5px solid green;
+}
+
+.supplier-card.failed {
+  border-left: 5px solid red;
+}
+
+.supplier-card.timeout {
+  border-left: 5px solid orange;
+}
+
+.supplier-card.empty {
+  border-left: 5px solid gray;
+}
+
+.supplier-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.supplier-header h3 {
+  margin: 0;
+}
+
+.supplier-status {
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.supplier-hotel {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid #eee;
+}
+
+.supplier-hotel div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.supplier-hotel small {
+  color: #777;
+}
+
+.supplier-error {
+  padding: 12px;
+  margin-top: 10px;
+  background: #fff0f0;
+  color: #c62828;
+  border-radius: 5px;
+}
+
+.supplier-empty {
+  padding: 12px;
+  color: #777;
+}
+
+.hotel-result {
+  margin-top: 30px;
+  padding: 20px;
+  border: 2px solid green;
+  border-radius: 10px;
+  background: #f6fff6;
+}
+
+.hotel-result h2 {
+  margin-top: 0;
+}
+
+.hotel-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid #ddd;
+}
+
+.hotel-row:last-child {
+  border-bottom: none;
+}
+
+.cancel-button {
+  margin-top: 10px;
+}

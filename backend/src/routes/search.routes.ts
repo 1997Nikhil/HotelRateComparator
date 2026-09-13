@@ -222,6 +222,8 @@ router.get(
 
           message:
             "Hotel search is still running",
+
+          suppliers: [],
         });
       }
 

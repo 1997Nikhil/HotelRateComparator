@@ -1,10 +1,13 @@
 import axios from "axios";
 
-
 const API_URL =
   "http://localhost:5000";
 
-
+/**
+ * ----------------------------------------------------
+ * HOTEL
+ * ----------------------------------------------------
+ */
 export interface Hotel {
   hotelId: string;
   name: string;
@@ -12,7 +15,11 @@ export interface Hotel {
   supplier: string;
 }
 
-
+/**
+ * ----------------------------------------------------
+ * SEARCH REQUEST
+ * ----------------------------------------------------
+ */
 export interface SearchRequest {
   city: string;
   checkIn: string;
@@ -20,7 +27,32 @@ export interface SearchRequest {
   scenario?: string;
 }
 
+/**
+ * ----------------------------------------------------
+ * SUPPLIER STATUS
+ * ----------------------------------------------------
+ */
+export interface SupplierStatus {
+  supplier:
+    | "SupplierA"
+    | "SupplierB";
 
+  status:
+    | "SUCCESS"
+    | "FAILED"
+    | "TIMEOUT"
+    | "EMPTY";
+
+  hotels: Hotel[];
+
+  error?: string;
+}
+
+/**
+ * ----------------------------------------------------
+ * START SEARCH RESPONSE
+ * ----------------------------------------------------
+ */
 export interface SearchStartResponse {
   workflowId: string;
 
@@ -29,14 +61,18 @@ export interface SearchStartResponse {
   message: string;
 }
 
-
+/**
+ * ----------------------------------------------------
+ * SEARCH STATUS RESPONSE
+ * ----------------------------------------------------
+ */
 export interface SearchStatusResponse {
   workflowId: string;
 
   status:
     | "RUNNING"
     | "COMPLETED"
-    | "CANCELED"
+    | "CANCELLED"
     | "FAILED";
 
   hotel: Hotel | null;
@@ -44,13 +80,14 @@ export interface SearchStatusResponse {
   message: string;
 
   search?: SearchRequest;
+
+  suppliers?: SupplierStatus[];
 }
 
-
 /**
- * ==========================================
+ * ----------------------------------------------------
  * START SEARCH
- * ==========================================
+ * ----------------------------------------------------
  */
 export async function startHotelSearch(
   data: SearchRequest
@@ -62,15 +99,13 @@ export async function startHotelSearch(
       data
     );
 
-
   return response.data;
 }
 
-
 /**
- * ==========================================
+ * ----------------------------------------------------
  * GET SEARCH STATUS
- * ==========================================
+ * ----------------------------------------------------
  */
 export async function getHotelSearchStatus(
   workflowId: string
@@ -81,15 +116,13 @@ export async function getHotelSearchStatus(
       `${API_URL}/api/search-hotels/${workflowId}`
     );
 
-
   return response.data;
 }
 
-
 /**
- * ==========================================
+ * ----------------------------------------------------
  * CANCEL SEARCH
- * ==========================================
+ * ----------------------------------------------------
  */
 export async function cancelHotelSearch(
   workflowId: string
